@@ -1,5 +1,4 @@
-import "fumadocs-ui/css/neutral.css";
-import "fumadocs-ui/css/preset.css";
+import "./global.css";
 
 import { RootProvider } from "fumadocs-ui/provider";
 import type { Metadata, Viewport } from "next";

@@ -1,0 +1,16 @@
+/*
+ * Tailwind v4 entry. fumadocs-ui 15.x ships its preset as Tailwind v4 CSS
+ * source — `@source`, `@plugin`, `@theme` directives only work when this
+ * file is processed by @tailwindcss/postcss (see postcss.config.mjs).
+ *
+ * Order matters: tailwindcss first, then the fumadocs theme (`neutral.css`
+ * picks the colour scheme), then the preset (registers the typography
+ * plugin + the design tokens).
+ */
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* Tell Tailwind to scan fumadocs's compiled JS for class names so the
+ * shipped component classes are emitted. */
+@source "../node_modules/fumadocs-ui/dist/**/*.js";
