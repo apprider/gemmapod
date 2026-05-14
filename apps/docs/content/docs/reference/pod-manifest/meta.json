@@ -1,0 +1,4 @@
+{
+  "title": "Pod manifest",
+  "pages": ["pod-toml", "signed-manifest"]
+}

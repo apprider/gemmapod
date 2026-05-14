@@ -1,0 +1,87 @@
+---
+title: AI business card
+description: A signed pod that introduces you, answers questions on your behalf, and shares contact details on request.
+---
+
+The canonical GemmaPod recipe. Drop the `.html` on your portfolio,
+attach it to a job-search email, embed it on your "about" page — same
+agent, same persona, runs on your machine.
+
+The live `gemmapod.com` explainer is exactly this recipe:
+[`examples/raj-card`](https://github.com/apprider/gemmapod/tree/main/examples/raj-card).
+
+## `pod.toml`
+
+```toml
+name = "raj-card"
+persona = "Raj's portable AI business card."
+model = "gemma4:e4b"
+
+system_prompt = """
+You are Raj's AI business card. You can:
+  - Introduce Raj briefly and ask the visitor what they want to know.
+  - Share contact details via the share_contact tool only when asked.
+  - Talk about Raj's recent projects via the show_project tool.
+
+Be concise, friendly, and honest about what you don't know. Don't
+fabricate details Raj hasn't told you.
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]
+
+[transport.webrtc]
+signal_url = "wss://cloud.gemmapod.com/signal"
+pod_id = "raj-card"
+
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"
+
+[[tools]]
+name = "share_contact"
+description = "Share Raj's public email + relevant links."
+
+[[tools]]
+name = "show_project"
+description = "Show a one-paragraph summary of a project Raj has worked on."
+```
+
+## Build + send
+
+```sh
+gemmapod build pod.toml --key owner.key --out raj-card.html
+```
+
+Email it. Embed it. Drop it on your portfolio via:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
+<script>
+  GemmaPod.mountPod(document.getElementById("agent"), {
+    name: "raj-card",
+    persona: "Raj's AI business card.",
+    systemPrompt: "…",        // mirror what's in pod.toml
+    model: "gemma4:e4b",
+    transport: { webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "raj-card" } },
+  });
+</script>
+```
+
+## Run the owner side
+
+```sh
+SIGNAL_URL=wss://cloud.gemmapod.com/signal \
+POD_ID=raj-card \
+OWNER_PUBKEY=<your_pubkey_hex> \
+npx @gemmapod/origin
+```
+
+The daemon serves only tools whose names appear in the signed manifest
+(`share_contact`, `show_project`) — even if your local registry has
+others.
+
+## See also
+
+- [`examples/raj-card`](https://github.com/apprider/gemmapod/tree/main/examples/raj-card)
+- [Build your first pod](/docs/quickstart/first-pod-cli)
+- [Add a tool](/docs/guides/add-a-tool)

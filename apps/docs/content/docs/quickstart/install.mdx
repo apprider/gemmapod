@@ -1,0 +1,67 @@
+---
+title: Install
+description: Pick the package that matches what you want to do — CLI, browser embed, server daemon, signaling broker.
+---
+
+## Pick your package
+
+| Goal                                              | Install                                          |
+| ------------------------------------------------- | ------------------------------------------------ |
+| Build a `.html` pod from a `pod.toml`             | `npm i -D @gemmapod/pack`                         |
+| Embed a pod on a website via `<script>`           | `<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser/dist/gemmapod-shim.iife.js">` |
+| Embed a pod from npm (Next.js / Vite / etc.)      | `npm i @gemmapod/browser`                         |
+| Build your own React UI over the runtime          | `npm i @gemmapod/browser` (use `/runtime` subpath) |
+| Run an owner-side daemon connecting to Ollama     | `npm i @gemmapod/origin` or `docker run ghcr.io/apprider/gemmapod-origin` |
+| Self-host the signaling broker + pod registry    | `npm i @gemmapod/cloud` or `docker run ghcr.io/apprider/gemmapod-cloud` |
+| Build a custom DARTC implementation               | `npm i @gemmapod/dartc`                           |
+| Build a custom verifier (Rust / Node)             | `npm i @gemmapod/core`                            |
+
+## Requirements
+
+- **Node 22+** for all server-side packages and the CLI. Older Node is
+  unsupported (we use `node:sqlite` built-in).
+- **pnpm 9+** is what the monorepo is developed on. `npm` and `yarn`
+  also work for consumers.
+- **Ollama** with `gemma4:e4b` for the owner-side daemon path. Not
+  needed if you only plan to use the in-browser WebGPU fallback.
+- **Rust stable + wasm32-unknown-unknown target + wasm-pack** only if
+  you're rebuilding the WASM core from source. The committed
+  `packages/core/pkg{,-node}/` artifacts work out of the box.
+
+## Pinning + Subresource Integrity (production)
+
+When you embed via CDN, **pin the version** and add an
+[SRI hash](/docs/guides/embed-on-any-page#subresource-integrity).
+`@latest` in production is how silent bumps eat afternoons.
+
+```sh
+curl -fsSL "https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js" \
+  | openssl dgst -sha384 -binary | openssl base64 -A
+```
+
+```html
+<script
+  src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"
+  integrity="sha384-PASTE_HASH_HERE"
+  crossorigin="anonymous"
+></script>
+```
+
+## Verifying signatures (optional but recommended)
+
+All `@gemmapod/*` packages publish to npm with **[sigstore provenance](https://docs.npmjs.com/generating-provenance-statements)**.
+You can verify any tarball came from this repo's CI without trusting
+npm:
+
+```sh
+npm audit signatures
+```
+
+## Next
+
+- [Build your first pod](/docs/quickstart/first-pod-cli) — TOML → `.html`
+  with the CLI.
+- [Embed via `<script>` tag](/docs/quickstart/first-pod-script) — drop a
+  pod on a page you control in 60 seconds.
+- [Run in React](/docs/quickstart/first-pod-react) — headless mount with
+  your own UI.

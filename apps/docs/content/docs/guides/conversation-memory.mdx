@@ -1,0 +1,88 @@
+---
+title: Conversation memory
+description: Stable conversationIds across browser refreshes and daemon restarts.
+---
+
+GemmaPod separates **transport identity** from **conversation identity**.
+A WebRTC peer is short-lived; a conversation is durable.
+
+## The three IDs you care about
+
+| Field             | Lifetime                              | Where it lives                       |
+| ----------------- | ------------------------------------- | ------------------------------------ |
+| `connectionId`    | One WebRTC peer                       | Generated per offer; not persisted   |
+| `sessionKey`      | One DARTC session                      | Ephemeral Ed25519 keypair            |
+| `conversationId`  | A logical chat                         | Browser `localStorage` + origin SQLite |
+
+The runtime stores `conversationId` in `localStorage` under
+`gemmapod:<podId>:conversation:v1` along with the visible chat history.
+A page refresh creates a fresh WebRTC peer with a new session key —
+**but** the next `dartc.hello` carries the same `conversationId`, and
+the origin daemon reattaches to the existing thread.
+
+## On the origin side
+
+The daemon writes conversation memory into a local SQLite database
+keyed by `(podId, conversationId)`:
+
+- Default path: `~/.gemmapod/origin.sqlite`
+- Override: `GEMMAPOD_ORIGIN_DB=/path/to/db.sqlite`
+
+Survives daemon restarts. Survives Ollama restarts. Doesn't survive
+deleting the SQLite file.
+
+## Clearing memory
+
+In the browser:
+
+```js
+localStorage.removeItem("gemmapod:hello-pod:conversation:v1");
+// or, programmatically:
+await runtime.chat.clear();
+```
+
+On the origin:
+
+```sh
+sqlite3 ~/.gemmapod/origin.sqlite \
+  "DELETE FROM conversations WHERE pod_id = 'hello-pod' AND conversation_id = '<id>';"
+```
+
+## What gets stored
+
+| Side    | Stored                                                              |
+| ------- | ------------------------------------------------------------------- |
+| Browser | `conversationId`, the visible chat history (user + assistant messages) |
+| Origin  | `conversationId`, the full message log, tool call traces, run IDs    |
+
+The browser store is intentionally **just what's visible** so that
+re-mounting the widget can rehydrate the transcript without waiting for
+the origin. The origin store has the full audit trail — useful for
+debugging and replay.
+
+## `MESSAGES_SNAPSHOT` resync
+
+If the browser thinks it has different history than the origin (e.g.
+the user cleared one side), the origin can re-establish the truth with
+a `MESSAGES_SNAPSHOT` event:
+
+```ts
+runtime.events.on("chat.history", ({ messages }) => {
+  // Fired after a MESSAGES_SNAPSHOT replaces local history.
+  renderTranscript(messages);
+});
+```
+
+## What if `conversationId` doesn't exist on the origin?
+
+The origin treats unknown `conversationId`s as new threads. So sending
+a fabricated id has no effect beyond starting a fresh conversation.
+There's no way to inject yourself into someone else's thread via
+manipulating the field — the origin already verifies the DARTC session
+signature using the manifest's owner pubkey.
+
+## See also
+
+- [Runtime state store reference](/docs/reference/runtime/RuntimeStateStore)
+- [`MESSAGES_SNAPSHOT` event](/docs/reference/dartc/ui-events)
+- [Origin daemon README](https://github.com/apprider/gemmapod/blob/main/packages/origin/README.md)

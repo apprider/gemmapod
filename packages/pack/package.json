@@ -1,0 +1,58 @@
+{
+  "name": "@gemmapod/pack",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "gemmapod CLI: turn a pod.toml + owner Ed25519 key into a single signed, self-mounting .html agent capsule. Same Rust/WASM core as the browser verifier.",
+  "keywords": [
+    "gemmapod",
+    "cli",
+    "ai-agent",
+    "ed25519",
+    "cbor",
+    "signing",
+    "pod",
+    "manifest"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/pack"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./dist/cli.js",
+  "bin": {
+    "gemmapod": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p . && chmod +x dist/cli.js",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@gemmapod/core": "workspace:*",
+    "@gemmapod/shim": "workspace:*",
+    "commander": "^12.1.0",
+    "smol-toml": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

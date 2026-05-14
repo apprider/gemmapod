@@ -1,0 +1,101 @@
+---
+title: Core concepts
+description: The seven things you need to know — pod, manifest, runtime, DARTC, A2A, transports, capabilities.
+---
+
+This page gives every concept a one-paragraph definition. Each links to
+the full reference.
+
+## Pod
+
+A **pod** is a signed AI agent capsule. On disk it's a single `.html`
+file. In memory it's a `GemmaPodRuntime` instance. On the wire it's a
+stream of signed DARTC envelopes. The same pod can run as a
+shareable file, an embedded widget, a CopilotKit-shaped headless host,
+a Docker container, or a packed cloud URL.
+
+## Manifest
+
+A pod's identity. A TOML file at build time, an Ed25519-signed CBOR
+blob at runtime. Commits the pod's name, persona, system prompt, model
+preference, transport config, and tool allow-list. The browser verifies
+the signature before any UI renders; tampering produces a visible refusal
+rather than a degraded persona.
+
+[Manifest reference →](/docs/reference/pod-manifest/pod-toml)
+
+## Runtime
+
+`GemmaPodRuntime` is the SDK spine. A typed object exposing:
+
+- `events` — typed event bus (`transport.ready`, `ui.event`, `chat.history`, `state.changed`, `a2a.card`, …)
+- `state` — JSON Patch-compatible store
+- `chat` — `stream()` / `send()` / `history()` / `setHistory()` / `clear()`
+- `capabilities` — registry of granted host capabilities
+- `a2a` — Agent Card discovered from the owner
+- `connect()` / `mount()` / `destroy()` / `getTransport()`
+
+The default Preact chat widget is one adapter over this runtime. Your
+React / Vue / CopilotKit host is another adapter over the same runtime.
+
+[Runtime reference →](/docs/reference/runtime/GemmaPodRuntime)
+
+## DARTC
+
+**Distributed Agent Real-Time Communication** — the wire protocol. A
+signed JSON envelope over a WebRTC DataChannel (relay-WS fallback
+planned). Topic-multiplexed: `dartc.*` for control, `a2a.*` for agent-
+to-agent semantic interop, `gemmapod.*` for chat + UI events. Every frame
+is Ed25519-signed; the receiver verifies before routing into the
+runtime bus.
+
+[DARTC spec →](/docs/protocol/dartc-spec)
+
+## A2A (Agent2Agent)
+
+The semantic interoperability layer GemmaPod carries over DARTC. After
+the WebRTC channel opens, peers exchange A2A-shaped `AgentCard`s on the
+`a2a.discovery` topic. Future pods will use the same channel to send
+`Message`, `Task`, and `Artifact` objects between agents.
+
+DARTC is the transport binding; A2A is the meaning.
+
+## Transports
+
+How a pod reaches a model:
+
+| Transport     | Where         | When it's used                                                  |
+| ------------- | ------------- | --------------------------------------------------------------- |
+| `webrtc`      | Browser ↔ owner | Primary. Cloud carries SDP only, then peer-to-peer.            |
+| `fallback`    | Browser only  | Owner offline. WebGPU + transformers.js + Gemma 4 E2B locally. |
+| `direct`      | Browser ↔ Ollama | Dev convenience. Visitor must be on the same LAN as Ollama.  |
+
+The shim's selector tries them in that fixed order; the manifest's
+`[transport.preferred]` list is advisory today.
+
+[Transport reference →](/docs/reference/runtime/Transports)
+
+## Capabilities
+
+What the host environment grants to the pod. A simple string registry
+today (`storage.local`, `transport.webrtc`, `transport.browser-fallback`,
+…), with a richer risk-tier capability-request API planned. Manifest
+declarations + host approval are the trust boundary.
+
+[Capabilities reference →](/docs/reference/runtime/Capabilities)
+
+## UI events
+
+`gemmapod.ui.event` is GemmaPod's AG-UI-shaped event stream over DARTC.
+Lifecycle events (`RUN_*`, `TEXT_MESSAGE_*`, `TOOL_CALL_*`), state
+events (`STATE_SNAPSHOT`, `STATE_DELTA`, `MESSAGES_SNAPSHOT`), activity
+events (`ACTIVITY_*`), and an escape hatch (`CUSTOM`, `RAW`). Field
+names match [AG-UI](https://docs.ag-ui.com/concepts/events) — only the
+`type` discriminator differs (SCREAMING_SNAKE vs. PascalCase). The shim
+ships `mapDartcUiEventToAgUi(event)` for one-call interop.
+
+[UI events reference →](/docs/reference/dartc/ui-events)
+
+---
+
+Next: [Architecture →](/docs/introduction/architecture)

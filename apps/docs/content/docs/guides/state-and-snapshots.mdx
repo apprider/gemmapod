@@ -1,0 +1,116 @@
+---
+title: State + snapshots
+description: STATE_SNAPSHOT and STATE_DELTA are how pods stream structured shared state over DARTC without minting new topics.
+---
+
+A surprising number of "we need realtime UI" problems collapse into:
+**send a snapshot, then send patches**. GemmaPod's runtime ships that
+out of the box.
+
+## The pattern
+
+Origin emits:
+
+```json
+{ "type": "STATE_SNAPSHOT", "threadId": "...", "snapshot": { "cart": [], "subtotalCents": 0, "status": "open" } }
+```
+
+Then later:
+
+```json
+{
+  "type": "STATE_DELTA",
+  "threadId": "...",
+  "delta": [
+    { "op": "add", "path": "/cart/0", "value": { "name": "Pizza", "priceCents": 1400 } },
+    { "op": "replace", "path": "/subtotalCents", "value": 1400 }
+  ]
+}
+```
+
+The runtime **auto-applies** both to `runtime.state` and emits a
+consolidated `state.changed`. Your host code subscribes once and
+re-renders:
+
+```ts
+runtime.events.on("state.changed", ({ state }) => {
+  renderCart(state);
+});
+```
+
+That's the whole pattern.
+
+## Why JSON Patch (RFC 6902)
+
+The patch operations come from a well-known IETF standard:
+
+- `add` — insert at a path
+- `replace` — overwrite at a path
+- `remove` — delete at a path
+- `move` / `copy` — also supported but rarely used
+
+The runtime applies them in order. No custom diff format. No custom
+patcher. Origins generate them with any JSON-Patch library; the runtime
+parses them with no extra dependencies.
+
+## `MESSAGES_SNAPSHOT` is the same pattern for chat history
+
+When an origin daemon picks up a previously-active conversation
+(visitor refreshed; new WebRTC peer with same `conversationId`), it
+sends a `MESSAGES_SNAPSHOT` to rehydrate the browser:
+
+```json
+{
+  "type": "MESSAGES_SNAPSHOT",
+  "threadId": "...",
+  "messages": [
+    { "role": "user", "content": "Hi" },
+    { "role": "assistant", "content": "Hello, how can I help?" }
+  ]
+}
+```
+
+The runtime auto-applies it via `chat.setHistory` and fires a
+`chat.history` event for any host that's tracking it separately.
+
+## `ACTIVITY_*` for per-message side-panel UI
+
+Tool execution sometimes needs richer per-message state than fits in
+chat. `ACTIVITY_SNAPSHOT` + `ACTIVITY_DELTA` are scoped to a single
+`messageId` and carry an arbitrary `content` payload:
+
+```json
+{
+  "type": "ACTIVITY_SNAPSHOT",
+  "messageId": "msg_42",
+  "activityType": "BOOKING_FORM",
+  "content": { "passengers": [], "destination": null }
+}
+```
+
+The runtime does **not** auto-apply activities (multiple may coexist
+per message). The host subscribes and renders directly.
+
+## Picking the right event
+
+| Use this           | When                                                    |
+| ------------------ | ------------------------------------------------------- |
+| `STATE_SNAPSHOT`   | Whole-thread state. Reset.                              |
+| `STATE_DELTA`      | Incremental change to thread state.                     |
+| `MESSAGES_SNAPSHOT`| Restore chat history (reconnect, server restart).       |
+| `ACTIVITY_SNAPSHOT`| New per-message side panel (tool form, doc preview, …). |
+| `ACTIVITY_DELTA`   | Update an existing activity panel.                      |
+| `CUSTOM`           | One-shot UI action (alert, modal trigger). No store applied. |
+
+## See it run
+
+The [restaurant-pod example](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod)
+ships a simulator that emits the full cart event sequence + a host HTML
+page that renders the cart with `runtime.events.on("state.changed", …)`.
+
+## See also
+
+- [Custom UI driven by events](/docs/guides/custom-ui-with-events)
+- [Restaurant pod recipe](/docs/recipes/restaurant-pod) (TODO)
+- [Runtime state store reference](/docs/reference/runtime/RuntimeStateStore)
+- [DARTC UI events reference](/docs/reference/dartc/ui-events)

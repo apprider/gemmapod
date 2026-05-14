@@ -1,0 +1,114 @@
+---
+title: Custom UI driven by events
+description: Build any UI affordance over `runtime.events` and `CUSTOM` UI events.
+---
+
+The DARTC `gemmapod.ui.event` topic carries a richer event stream than
+"chat went brrr". Use it to build:
+
+- live cart panels (`STATE_SNAPSHOT` / `STATE_DELTA`)
+- 3D companions reacting to model mood (`CUSTOM`)
+- payment confirmation sheets (`CUSTOM name="checkout.requested"`)
+- approval flows for tool calls (`TOOL_CALL_*` + a host-side modal)
+- generative dashboards (`MESSAGES_SNAPSHOT` + `STATE_SNAPSHOT`)
+- presentation overlays (`CUSTOM name="presentation.show"`)
+
+This guide lays out the pattern.
+
+## The runtime auto-applies state events
+
+You **don't** need to handle `STATE_SNAPSHOT` and `STATE_DELTA`
+manually. The runtime applies them to `runtime.state` and emits a
+consolidated `state.changed` event:
+
+```ts
+runtime.events.on("state.changed", ({ state }) => {
+  renderMyUI(state);
+});
+```
+
+Same for `MESSAGES_SNAPSHOT` — auto-applied into `runtime.chat`
+history, and a `chat.history` event fires.
+
+## Subscribe to the typed UI event stream
+
+For everything else (run lifecycle, tool calls, activity, custom):
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  switch (event.type) {
+    case "RUN_STARTED": setBusy(true); break;
+    case "RUN_FINISHED": setBusy(false); break;
+    case "RUN_ERROR": showError(event.message); break;
+
+    case "TOOL_CALL_START":
+      addLiveTool({ id: event.toolCallId, name: event.toolCallName });
+      break;
+    case "TOOL_CALL_RESULT":
+      finishLiveTool({ id: event.toolCallId, content: event.content });
+      break;
+
+    case "CUSTOM":
+      handleCustom(event.name, event.value);
+      break;
+  }
+});
+```
+
+## Custom events — the escape hatch
+
+`CUSTOM` is the official escape hatch for app-specific UI updates that
+don't fit the typed catalogue. The origin signs and emits:
+
+```json
+{
+  "type": "CUSTOM",
+  "threadId": "conv_…",
+  "runId": "run_…",
+  "name": "checkout.requested",
+  "value": { "totalCents": 4200, "currency": "USD" }
+}
+```
+
+The host page filters by `event.name` and updates the UI:
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  if (event.type !== "CUSTOM") return;
+  if (event.name === "checkout.requested") {
+    showCheckoutSheet(event.value);
+  } else if (event.name === "companion.mood") {
+    setCompanionMood(event.value.mood);
+  }
+});
+```
+
+A few naming conventions worth following:
+
+- Lowercase dot-separated names: `checkout.requested`, `companion.react`,
+  `presentation.show`.
+- The `value` is an opaque payload — keep it serialisable JSON.
+- Don't put model-generated text in `CUSTOM` payloads. Text rides
+  `TEXT_MESSAGE_*` events.
+
+## Real example: the gemmapod.com hero
+
+The live gemmapod.com hero shows a 3D cube companion next to the chat
+that reacts to model state. It's driven entirely by `CUSTOM` events:
+
+| Custom event name        | Effect on the page                              |
+| ------------------------ | ----------------------------------------------- |
+| `companion.react`        | Mood + stage + facial expression                |
+| `companion.say`          | Speech bubble text                              |
+| `companion.mood`         | Just the mood field                             |
+| `presentation.show`      | Slide-in panel with title/body/items + status   |
+
+No new DARTC topics. No parallel websocket. Each `CUSTOM` event is a
+signed DARTC envelope on the same channel as the chat itself.
+
+## See also
+
+- [Restaurant pod example](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod) — full `STATE_SNAPSHOT` cart demo
+- [State + snapshots guide](/docs/guides/state-and-snapshots)
+- [AG-UI bridge guide](/docs/guides/ag-ui-bridge)
+- [DARTC UI events reference](/docs/reference/dartc/ui-events)

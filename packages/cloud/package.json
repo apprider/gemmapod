@@ -1,0 +1,69 @@
+{
+  "name": "@gemmapod/cloud",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Reference signaling broker + pod registry for GemmaPod. Run with `npx @gemmapod/cloud` for an in-memory broker, or plug your own Registry implementation behind the same interface.",
+  "keywords": [
+    "gemmapod",
+    "webrtc-signaling",
+    "ai-agents",
+    "self-host",
+    "dartc",
+    "hono",
+    "sqlite"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/cloud"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "gemmapod-signal": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/cli.ts",
+    "start": "tsx src/cli.ts",
+    "build": "tsc -p . && chmod +x dist/cli.js",
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "pnpm build && pnpm test"
+  },
+  "dependencies": {
+    "@gemmapod/core": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "commander": "^12.1.0",
+    "hono": "^4.6.14",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

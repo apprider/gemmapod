@@ -1,0 +1,97 @@
+---
+title: Versioning
+description: npm semver, DARTC wire version, and signed manifest CBOR — three orthogonal versioning axes.
+---
+
+GemmaPod has **three** versioned surfaces. They are intentionally
+independent so they can evolve at their own pace without breaking the
+others.
+
+## 1. npm package versions — [semver](https://semver.org)
+
+Every `@gemmapod/*` package follows semver:
+
+- **Major** — breaking API change.
+- **Minor** — additive feature.
+- **Patch** — bug fix.
+
+We are at v0.x. Under the [pre-1.0 semver convention](https://semver.org/#spec-item-4),
+minor bumps **may** include breaking changes — but every breaking
+change is called out in the changelog with a migration note.
+
+Each package versions independently. `@gemmapod/shim` v0.2.0 can ship
+alongside `@gemmapod/dartc` v0.1.5 if dartc didn't change.
+
+The `@gemmapod/shim` and `@gemmapod/browser` packages are **linked** in
+the Changesets config — a shim bump always implies a browser bump of
+the same flavour, because browser republishes shim's IIFEs verbatim.
+
+## 2. DARTC wire version — protocol-level
+
+The DARTC envelope carries its own `version` field. We are at `"0.2"`
+today.
+
+- **Adding optional envelope or payload fields is safe** — a `v0.2`
+  receiver MUST ignore unknown fields.
+- **Removing fields or changing semantics is a wire breaking change** —
+  bumps the DARTC version, and both peers MUST agree.
+- **Adding new topics is safe** — receivers ignore frames on
+  unrecognised topics.
+
+A **patch or minor bump** of `@gemmapod/shim` MUST NOT change the wire
+format. Two different shim minor versions targeting DARTC `v0.2` are
+required to interoperate.
+
+## 3. Signed manifest CBOR — pod-level
+
+The manifest body carries a `v` field. We are at `1` today.
+
+- **Adding optional manifest fields is safe** — older verifiers ignore
+  them.
+- **Removing or renaming fields bumps the manifest schema version**.
+  Both signer and verifier MUST upgrade.
+
+The CBOR-encoded body is included verbatim in the signature, so even
+encoder-level CBOR differences (canonicalisation choices, etc.) don't
+create drift.
+
+## DARTC UI event payload schema
+
+The `gemmapod.ui.event` payload carries a separate `schema` field
+(currently `"dartc.ui.event/0.1"`). This versions the **UI event
+catalogue** independently from the DARTC envelope. Adding new event
+types, renaming fields, or breaking AG-UI compatibility would bump the
+schema string.
+
+```ts
+interface DartcUiEventPayload {
+  schema: "dartc.ui.event/0.1";
+  event: DartcUiEvent;
+}
+```
+
+## Deprecation policy
+
+When a public API is deprecated:
+
+1. The next **minor** version logs a deprecation warning on use.
+2. The deprecation note appears in `CHANGELOG.md` with the planned
+   removal version.
+3. The API is removed in the next **major** version (or, pre-1.0, in a
+   minor version with a clear migration note).
+
+## Practical rules
+
+- **Pin `@gemmapod/*` versions in production.** Don't `@latest`.
+- **A package update never changes a wire format.** If your origin
+  daemon and visitor pods don't ship together, they only need to agree
+  on the DARTC version + manifest schema version, not the npm versions.
+- **Older pods stay valid.** A signed manifest signed against schema
+  `v=1` keeps verifying forever (until we issue a hard deprecation,
+  which would itself ship a migration path).
+
+## See also
+
+- [Changelog](/docs/changelog)
+- [DARTC envelope](/docs/reference/dartc/envelope)
+- [Signed manifest](/docs/reference/pod-manifest/signed-manifest)

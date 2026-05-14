@@ -1,0 +1,104 @@
+---
+title: Headless mode
+description: Drop the Preact widget, keep the runtime.
+---
+
+"Headless" means: load the runtime, the WebRTC transport, the WebGPU
+fallback, the DARTC envelope handling, the chat API, the state store,
+**but skip the Preact chat widget**. You render the UI.
+
+## The contract
+
+```ts
+const { runtime, destroy } = await GemmaPod.mountPod(null, config, {
+  ui: "none",
+  fallbackUi: "default",        // or "none" if you also handle prepare UX
+  fallbackMountParent: yourEl,   // when fallbackUi is "default"
+});
+```
+
+- `el` is `null` because there's no chat widget to mount.
+- `ui: "none"` skips Preact entirely.
+- `fallbackUi: "default"` keeps the shim's WebGPU prepare panel — just
+  tell it where to render via `fallbackMountParent`.
+- `fallbackUi: "none"` if you also want to roll your own prepare UI
+  (rare; see [`attachBrowserFallbackPrepare`](/docs/reference/runtime/Transports)
+  for the lower-level hook).
+
+## Why two IIFEs
+
+The runtime-only IIFE (`gemmapod-runtime.iife.js`) doesn't bundle Preact
+or the chat widget, saving ~22 KB before gzip. For headless embeds the
+runtime-only build is the right choice; the full build is for packed
+`.html` blobs that need their own UI.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-runtime.iife.js"></script>
+```
+
+Both IIFEs assign to `window.GemmaPod` and expose the same `mountPod` /
+`create` / `mount` / `attachBrowserFallbackPrepare` / `quickTransportStatus`
+/ `mapDartcUiEventToAgUi`. Only the **full** build exposes `boot`,
+`initCore`, `GemmaPodCore`, `wasmInit` (the signing helpers).
+
+## What the runtime gives you
+
+```ts
+runtime.events.on("transport.ready", ...);
+runtime.events.on("transport.fallback", ...);
+runtime.events.on("ui.event", ({ event }) => { /* DartcUiEvent */ });
+runtime.events.on("state.changed", ({ state }) => { /* RFC 6902-applied snapshot */ });
+runtime.events.on("chat.history", ({ messages }) => { /* ChatMessage[] */ });
+runtime.events.on("a2a.card", ({ card }) => { /* A2AAgentCard */ });
+
+await runtime.chat.send("hello");
+for await (const chunk of runtime.chat.stream("hello")) { /* … */ }
+
+runtime.state.get();        // current snapshot
+runtime.state.subscribe(fn); // bypass the event bus for direct subscriptions
+
+runtime.capabilities.has("storage.local");
+runtime.capabilities.list();
+```
+
+Reference: [`GemmaPodRuntime`](/docs/reference/runtime/GemmaPodRuntime).
+
+## Patterns
+
+### Stream assistant text into your own transcript
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  if (event.type === "TEXT_MESSAGE_CONTENT") {
+    appendAssistantDelta(event.delta);
+  }
+});
+
+for await (const _chunk of runtime.chat.stream(userInput)) {
+  // drain — text rendered above
+}
+```
+
+### Project shared state
+
+```ts
+runtime.events.on("state.changed", ({ state }) => renderCart(state));
+```
+
+`STATE_SNAPSHOT` and `STATE_DELTA` are auto-applied. You just subscribe.
+
+### Bridge to AG-UI
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  copilot.dispatch(GemmaPod.mapDartcUiEventToAgUi(event));
+});
+```
+
+[Full AG-UI bridge guide →](/docs/guides/ag-ui-bridge)
+
+## What's next
+
+- [Custom UI driven by events](/docs/guides/custom-ui-with-events)
+- [`react-headless` example](https://github.com/apprider/gemmapod/tree/main/examples/react-headless)
+- [`copilotkit-style` example](https://github.com/apprider/gemmapod/tree/main/examples/copilotkit-style)

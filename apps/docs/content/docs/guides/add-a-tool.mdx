@@ -1,0 +1,132 @@
+---
+title: Add a tool
+description: Declare a tool in the manifest, implement it in the origin daemon, keep the allow-list signed.
+---
+
+GemmaPod tools follow a strict pattern:
+
+1. **Declared in the signed manifest.** Pods can never grow new tools
+   at runtime.
+2. **Implemented in the origin daemon's local registry.** The pod
+   doesn't carry executable tool code.
+3. **Origin enforces the intersection.** A tool runs only if its name is
+   in **both** the signed manifest **and** the local registry.
+
+This is the trust boundary. Tampering with either side breaks the
+contract closed.
+
+## Step 1. Declare in `pod.toml`
+
+```toml
+name = "ticketing-bot"
+persona = "Helps customers diagnose issues and open tickets."
+model = "gemma4:e4b"
+
+system_prompt = """
+You help customers. When they describe a problem you can't resolve in
+chat, call `open_ticket` with a summary; never invent ticket IDs.
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]
+
+[transport.webrtc]
+signal_url = "wss://cloud.gemmapod.com/signal"
+pod_id = "ticketing-bot"
+
+[[tools]]
+name = "open_ticket"
+description = "Open a ticket in the company's helpdesk."
+
+[[tools]]
+name = "search_kb"
+description = "Search the public knowledge base."
+```
+
+Rebuild:
+
+```sh
+gemmapod build pod.toml --key owner.key --out ticketing-bot.html
+```
+
+The manifest's tool allow-list is now part of the signed CBOR. A
+tampered blob fails verification.
+
+## Step 2. Implement in the origin daemon
+
+The origin's local registry is keyed by tool name. Today the registry
+ships three built-in tools (`share_contact`, `show_project`,
+`package_demo_pod`); you can extend it by editing
+[`packages/origin/src/toolRuntime.ts`](https://github.com/apprider/gemmapod/blob/main/packages/origin/src/toolRuntime.ts)
+or — for plug-in style — wrapping the daemon with your own runner.
+
+A minimal local registry entry looks like:
+
+```ts
+const localTools: Record<string, LocalTool> = {
+  open_ticket: {
+    description: "Open a ticket in the helpdesk.",
+    async execute({ summary, severity = "normal" }) {
+      const res = await fetch("https://helpdesk.internal/api/tickets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.HELPDESK_TOKEN}`,
+        },
+        body: JSON.stringify({ summary, severity }),
+      });
+      if (!res.ok) throw new Error(`helpdesk: ${res.status}`);
+      return { id: (await res.json()).id };
+    },
+  },
+
+  search_kb: {
+    description: "Search the public knowledge base.",
+    async execute({ query, limit = 5 }) {
+      const res = await fetch(
+        `https://help.example.com/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      );
+      return await res.json();
+    },
+  },
+};
+```
+
+A future release will expose this as a registration API
+(`origin.registerTool(name, fn)`) so you don't fork the package. For
+v0.1, fork or wrap.
+
+## Step 3. Run with `OWNER_PUBKEY` set (production)
+
+In production, set `OWNER_PUBKEY` so the origin only accepts manifests
+signed by **your** key. Otherwise anyone running a pod against your
+`POD_ID` could request your tools.
+
+```sh
+SIGNAL_URL=wss://cloud.gemmapod.com/signal \
+POD_ID=ticketing-bot \
+OWNER_PUBKEY=<your_pubkey_hex> \
+pnpm --filter @gemmapod/origin start
+```
+
+## How the call flows
+
+1. The pod's WebRTC channel opens; both sides exchange signed
+   `dartc.hello` envelopes carrying the signed manifest.
+2. The origin verifies the manifest, checks `OWNER_PUBKEY` if set,
+   intersects the manifest's `[[tools]]` list with the local registry.
+3. The model decides to call `open_ticket`. The origin invokes
+   `localTools.open_ticket.execute(args)` and streams the result back
+   as a signed `gemmapod.ui.event` (`TOOL_CALL_START` → `TOOL_CALL_ARGS`
+   → `TOOL_CALL_END` → `TOOL_CALL_RESULT`) plus an assistant
+   `TEXT_MESSAGE_*` reply.
+4. The browser runtime fires `ui.event` on its bus. Custom UIs render
+   tool activity inline (see
+   [restaurant-pod](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod)).
+
+## See also
+
+- [`pod.toml` reference](/docs/reference/pod-manifest/pod-toml)
+- [Signed manifest reference](/docs/reference/pod-manifest/signed-manifest)
+- [Security model](/docs/protocol/security-model) — tool-execution trust boundary
+- [Origin daemon README](https://github.com/apprider/gemmapod/blob/main/packages/origin/README.md)

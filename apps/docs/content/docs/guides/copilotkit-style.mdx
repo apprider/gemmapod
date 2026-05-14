@@ -1,0 +1,87 @@
+---
+title: CopilotKit-style hosts
+description: Drop GemmaPod into a CopilotKit-shaped React shell using the AG-UI event mapping.
+---
+
+If your existing app already speaks
+[AG-UI](https://docs.ag-ui.com/concepts/events) — CopilotKit, AI SDK
+consumers, anything that expects PascalCase event types — GemmaPod
+plugs in with one mapping call.
+
+## The translation
+
+GemmaPod's `gemmapod.ui.event` topic carries DARTC events using
+`SCREAMING_SNAKE` `type` strings. AG-UI uses `PascalCase`. The payload
+field names match either way. The shim ships a pure function that
+rewrites only the discriminator:
+
+```ts
+const aguiEvent = GemmaPod.mapDartcUiEventToAgUi(event);
+```
+
+| DARTC                  | AG-UI                |
+| ---------------------- | -------------------- |
+| `RUN_STARTED`          | `RunStarted`         |
+| `RUN_FINISHED`         | `RunFinished`        |
+| `RUN_ERROR`            | `RunError`           |
+| `TEXT_MESSAGE_START`   | `TextMessageStart`   |
+| `TEXT_MESSAGE_CONTENT` | `TextMessageContent` |
+| `TEXT_MESSAGE_END`     | `TextMessageEnd`     |
+| `TOOL_CALL_START`      | `ToolCallStart`      |
+| `TOOL_CALL_ARGS`       | `ToolCallArgs`       |
+| `TOOL_CALL_END`        | `ToolCallEnd`        |
+| `TOOL_CALL_RESULT`     | `ToolCallResult`     |
+| `STATE_SNAPSHOT`       | `StateSnapshot`      |
+| `STATE_DELTA`          | `StateDelta`         |
+| `MESSAGES_SNAPSHOT`    | `MessagesSnapshot`   |
+| `ACTIVITY_SNAPSHOT`    | `ActivitySnapshot`   |
+| `ACTIVITY_DELTA`       | `ActivityDelta`      |
+| `CUSTOM`               | `Custom`             |
+| `RAW` / unknown        | `Raw`                |
+
+## The whole integration in one snippet
+
+```ts
+const { runtime } = await GemmaPod.mountPod(null, config, {
+  ui: "none",
+  fallbackUi: "default",
+});
+
+runtime.events.on("ui.event", ({ event }) => {
+  const aguiEvent = GemmaPod.mapDartcUiEventToAgUi(event);
+  // Dispatch into your existing AG-UI host:
+  yourHost.dispatch(aguiEvent);
+});
+```
+
+## See it side-by-side
+
+The [`copilotkit-style` example](https://github.com/apprider/gemmapod/tree/main/examples/copilotkit-style)
+renders every event in two columns — raw DARTC on the left, AG-UI on
+the right — so you can verify the mapping before wiring it into a real
+host.
+
+```sh
+pnpm --filter @gemmapod/example-copilotkit-style dev
+# open http://localhost:5175
+```
+
+## Why two vocabularies
+
+DARTC predates AG-UI in the GemmaPod project. The discriminators differ
+because we wanted DARTC `type` strings that are visually distinct from
+other JSON fields when reading raw frames (logs, network panel,
+debugger). AG-UI uses PascalCase to match TypeScript convention. Field
+names converged — that was the harder thing to get right, so we built
+to match it.
+
+The mapper is **pure** — call it where it's convenient. No runtime
+state. No async. No allocation beyond the new object.
+
+## See also
+
+- [`mapDartcUiEventToAgUi` source](https://github.com/apprider/gemmapod/blob/main/packages/shim/src/agUiMap.ts)
+- [AG-UI bridge guide](/docs/guides/ag-ui-bridge) — same content, focused
+  on the mapper API.
+- [DARTC UI events reference](/docs/reference/dartc/ui-events)
+- [AG-UI event reference](https://docs.ag-ui.com/concepts/events)

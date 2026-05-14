@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  # Don't cancel an in-flight publish — let it finish so we don't half-publish.
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version · Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    permissions:
+      contents: write       # commit version bumps + push tags
+      pull-requests: write  # open the "Version Packages" PR
+      id-token: write       # sigstore provenance for npm publish
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22 (npm registry auth)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Rust (stable + wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/core/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/core/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked --version 0.13.1
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all (core + packages)
+        run: |
+          pnpm build:core
+          pnpm -r --filter "./packages/**" build
+
+      # On main, this action runs in two modes:
+      #   1. If there are unreleased changesets, it opens (or updates) a
+      #      "Version Packages" PR that runs `changeset version` against the tree.
+      #   2. If we just merged that PR (no changesets remaining + package.json
+      #      bumps in the diff), it runs `changeset publish` to push to npm
+      #      and creates a GitHub release per package.
+      - name: Create Release PR / Publish to npm
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset:version
+          publish: pnpm changeset:publish
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,110 @@
+---
+title: Embed in React
+description: Default Preact widget inside a React app, or headless with your own UI.
+---
+
+Two flavours, depending on whether you want GemmaPod's built-in chat
+widget or your own:
+
+## Flavour 1 — Default widget inside a React app
+
+Use this if you're happy with the shim's bundled Preact chat UI and just
+want it mounted into a `<div>` your React tree renders.
+
+```tsx
+import { useEffect, useRef } from "react";
+
+export function Pod() {
+  const host = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!host.current) return;
+    let mounted: { destroy(): Promise<void> } | null = null;
+    (window as any).GemmaPod
+      .mountPod(host.current, config)
+      .then((m: any) => (mounted = m));
+    return () => void mounted?.destroy();
+  }, []);
+
+  return <div ref={host} />;
+}
+```
+
+Wire the IIFE in `index.html`:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
+```
+
+## Flavour 2 — Headless (your own UI)
+
+Use this for CopilotKit-shaped hosts, AI SDK chat surfaces, or any custom
+React UI. Load the smaller **runtime-only** IIFE and pass `ui: "none"` to
+`mountPod`.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-runtime.iife.js"></script>
+```
+
+```tsx
+import { useEffect, useRef, useState } from "react";
+
+export function Pod() {
+  const [lines, setLines] = useState<string[]>([]);
+  const [input, setInput] = useState("");
+  const runtimeRef = useRef<any>(null);
+  const fallbackHost = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let m: any;
+    (async () => {
+      m = await (window as any).GemmaPod.mountPod(null, config, {
+        ui: "none",
+        fallbackUi: "default",
+        fallbackMountParent: fallbackHost.current ?? undefined,
+      });
+      runtimeRef.current = m.runtime;
+      m.runtime.events.on("ui.event", ({ event }: any) => {
+        if (event.type === "TEXT_MESSAGE_CONTENT") {
+          setLines((cur) => [...cur, event.delta]);
+        }
+      });
+    })();
+    return () => void m?.destroy();
+  }, []);
+
+  return (
+    <div>
+      <div>{lines.join("")}</div>
+      <input value={input} onChange={(e) => setInput(e.target.value)} />
+      <button
+        onClick={async () => {
+          for await (const _ of runtimeRef.current.chat.stream(input)) {}
+          setInput("");
+        }}
+      >
+        Send
+      </button>
+      <div ref={fallbackHost} />
+    </div>
+  );
+}
+```
+
+The full version is at
+[`examples/react-headless`](https://github.com/apprider/gemmapod/tree/main/examples/react-headless).
+
+## Picking a flavour
+
+| You want…                                          | Use                          |
+| -------------------------------------------------- | ---------------------------- |
+| The shim's built-in chat UI                        | Flavour 1                    |
+| Your own transcript + composer                     | Flavour 2                    |
+| A CopilotKit-shaped event handler                  | Flavour 2 + [AG-UI bridge](/docs/guides/ag-ui-bridge) |
+| To render a custom 3D companion / cart / dashboard | Flavour 2 + [STATE_SNAPSHOT](/docs/guides/state-and-snapshots) |
+
+## What's next
+
+- [Headless mode reference](/docs/guides/headless-mode)
+- [Custom UI driven by events](/docs/guides/custom-ui-with-events)
+- [`mountPod` options reference](/docs/reference/runtime/mountPod)

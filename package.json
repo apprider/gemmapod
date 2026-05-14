@@ -1,0 +1,40 @@
+{
+  "name": "gemmapod",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Composable, portable AI agent capsules powered by Gemma 4. Open-source SDK monorepo.",
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm build:core && pnpm -r --filter \"./packages/*\" run build",
+    "build:core": "pnpm --filter @gemmapod/core run build",
+    "test": "pnpm --filter @gemmapod/dartc test && pnpm --filter @gemmapod/cloud test",
+    "dev:shim": "pnpm --filter @gemmapod/shim dev",
+    "dev:origin": "pnpm --filter @gemmapod/origin dev",
+    "dev:cloud": "pnpm --filter @gemmapod/cloud dev",
+    "dev:docs": "pnpm --filter @gemmapod/docs dev",
+    "changeset": "changeset",
+    "changeset:status": "changeset status",
+    "changeset:version": "changeset version",
+    "changeset:publish": "changeset publish",
+    "changeset:snapshot": "changeset version --snapshot && changeset publish --no-git-tag --snapshot --tag snapshot"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

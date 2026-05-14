@@ -1,0 +1,61 @@
+{
+  "name": "@gemmapod/browser",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser distribution of GemmaPod — one script tag, window.GemmaPod runtime. Republishes the two @gemmapod/shim IIFEs (full + runtime-only) with stable npm/CDN paths and bundled .d.ts.",
+  "keywords": [
+    "gemmapod",
+    "ai-agent",
+    "browser-sdk",
+    "cdn",
+    "iife",
+    "webrtc",
+    "ag-ui",
+    "dartc",
+    "preact",
+    "transformers.js",
+    "webgpu"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/browser"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./dist/gemmapod-shim.iife.js",
+  "types": "./dist/gemmapod-browser.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/gemmapod-browser.d.ts",
+      "default": "./dist/gemmapod-shim.iife.js"
+    },
+    "./runtime": {
+      "types": "./dist/gemmapod-browser-runtime.d.ts",
+      "default": "./dist/gemmapod-runtime.iife.js"
+    },
+    "./dist/gemmapod-shim.iife.js": "./dist/gemmapod-shim.iife.js",
+    "./dist/gemmapod-runtime.iife.js": "./dist/gemmapod-runtime.iife.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node ./scripts/prepack.mjs",
+    "prepack": "node ./scripts/prepack.mjs",
+    "prepublishOnly": "pnpm build"
+  },
+  "devDependencies": {
+    "@gemmapod/shim": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

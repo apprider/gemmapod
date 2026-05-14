@@ -1,0 +1,17 @@
+{
+  "name": "@gemmapod/core-web",
+  "type": "module",
+  "version": "0.0.0",
+  "files": [
+    "gemmapod_core_bg.wasm",
+    "gemmapod_core.js",
+    "gemmapod_core.d.ts"
+  ],
+  "main": "gemmapod_core.js",
+  "types": "gemmapod_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "private": true,
+  "description": "Internal build artifact of @gemmapod/core (web target). Do not depend on this name directly; use @gemmapod/core/web via the parent package's exports map."
+}

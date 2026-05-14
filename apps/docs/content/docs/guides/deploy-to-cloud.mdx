@@ -1,0 +1,75 @@
+---
+title: Deploy a pod to a stable URL
+description: POST a signed .html to a signaling broker; get back a shareable URL.
+---
+
+Sending pods by email works, but a URL is friendlier. Any signaling
+broker running `@gemmapod/cloud` exposes a `POST /pods` endpoint that:
+
+1. Extracts the inlined signed manifest from your `.html` blob.
+2. Verifies the Ed25519 signature using the same WASM core the browser
+   uses (no encoder/decoder drift possible).
+3. Stores the blob via the configured `Registry` (`MemoryRegistry`,
+   `SqliteRegistry`, or your custom implementation).
+4. Returns a JSON envelope with the new URL.
+
+## Upload
+
+```sh
+curl -X POST -H 'Content-Type: text/html' \
+  --data-binary @hello-pod.html \
+  https://cloud.gemmapod.com/pods
+# { "id":"AbC123XyZ_-Q", "url":"https://cloud.gemmapod.com/AbC123XyZ_-Q", "ownerPubkey":"…", "blobSize":987330 }
+```
+
+Share `url` with anyone. They open the link, the broker streams the
+signed blob with a strict CSP, and the pod boots in their browser.
+
+## What's in the response
+
+| Field         | Meaning                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `id`          | 12-character URL-safe slug. ~71 bits of entropy.                 |
+| `url`         | Convenience field — the full URL where the blob is served.       |
+| `ownerPubkey` | The Ed25519 pubkey from the verified manifest. Lets the uploader confirm the broker accepted their signature. |
+| `blobSize`    | Size of the served blob in bytes.                                |
+
+## What gets verified server-side
+
+Same code path as the browser. The broker rejects blobs that:
+
+- exceed 50 MB (oversize guard at the edge)
+- have no `__GEMMAPOD_MANIFEST_B64` inline
+- have a manifest the Ed25519 signature does not validate
+
+A malformed or unsigned blob never reaches the Registry's `putPod`.
+
+## Public vs. self-hosted brokers
+
+The `cloud.gemmapod.com` endpoint is a courtesy. For production, run
+your own broker — same code, same `POST /pods` route:
+
+```sh
+npx @gemmapod/cloud --registry sqlite --data-dir ./pods --port 8080
+# or Docker:
+docker run --rm -p 8080:8080 -v $(pwd)/pods:/data \
+  ghcr.io/apprider/gemmapod-cloud:latest \
+  --registry sqlite --data-dir /data
+```
+
+Then upload to `http://your-broker.example.com/pods`. See
+[self-host signaling](/docs/guides/self-host-signaling) for the full
+production checklist.
+
+## The `id` is the URL-safe slug
+
+The broker won't let you choose your own pod URL. Slugs are randomly
+generated (~71 bits) so you can share them publicly without revealing
+ordering or upload count. If you need a vanity URL, put a reverse proxy
+in front and rewrite paths.
+
+## See also
+
+- [Self-host the signaling broker](/docs/guides/self-host-signaling)
+- [Pluggable Registry interface](/docs/reference/cli/build) (TODO link)
+- [Security model — `/pods` ingest](/docs/protocol/security-model)

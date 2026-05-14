@@ -1,0 +1,120 @@
+---
+title: Self-host the signaling broker
+description: Run @gemmapod/cloud on your VM — 30 lines or one Docker command.
+---
+
+The signaling broker is **transport-only**. It carries:
+
+- WebSocket SDP exchanges + trickled ICE candidates
+- `POST /pods` blob uploads
+- `GET /:id` blob downloads
+- `GET /:id/meta` JSON record reads
+
+Chat traffic never traverses the broker. Once the WebRTC data channel
+opens, the broker is out of the conversation.
+
+[Runnable version in the repo →](https://github.com/apprider/gemmapod/tree/main/examples/self-host-signaling)
+
+## Quickest start
+
+```sh
+npx @gemmapod/cloud --registry memory --port 8080
+```
+
+In-memory broker. Lost on restart. Perfect for demos and local dev.
+
+## Persistent (SQLite)
+
+```sh
+npx @gemmapod/cloud --registry sqlite --data-dir ./gemmapod-data --port 8080
+```
+
+`node:sqlite` is built into Node 22+ — no native build, no install
+surprises. Blobs live in `./gemmapod-data/blobs/`, records in
+`./gemmapod-data/cloud.sqlite`.
+
+## Docker
+
+```sh
+docker run --rm -p 8080:8080 \
+  -v $(pwd)/gemmapod-data:/data \
+  ghcr.io/apprider/gemmapod-cloud:latest \
+  --registry sqlite --data-dir /data
+```
+
+Multi-arch (`linux/amd64,linux/arm64`), built and signed by the
+[release workflow](https://github.com/apprider/gemmapod/blob/main/.github/workflows/docker-images.yml)
+with sigstore provenance.
+
+## Programmatic
+
+```ts
+import { createSignalServer, SqliteRegistry } from "@gemmapod/cloud";
+
+const registry = new SqliteRegistry({ dataDir: "./data" });
+const server = createSignalServer({ registry, port: 8080, hostname: "0.0.0.0" });
+
+process.on("SIGINT", async () => {
+  await server.close();
+  process.exit(0);
+});
+```
+
+## Plug in your own storage
+
+Implement the four-method `Registry` interface — that's the whole
+extension point.
+
+```ts
+import type { Registry, PodRecord } from "@gemmapod/cloud";
+
+class S3Registry implements Registry {
+  async putPod(record: PodRecord, blob: Buffer): Promise<void> {
+    // put blob to S3
+    // put record to your metadata store
+  }
+  async getRecord(id: string): Promise<PodRecord | null> { /* … */ }
+  async getBlob(id: string): Promise<Buffer | null> { /* … */ }
+  async bumpHits(id: string): Promise<void> { /* best-effort */ }
+}
+
+createSignalServer({ registry: new S3Registry(), port: 8080 });
+```
+
+The broker **never** calls `putPod` with an unverified blob. The
+`createPod()` helper inside `@gemmapod/cloud` runs the Ed25519
+signature check + extracts the inlined manifest before delegating.
+Your backend only sees blobs that already passed verification.
+
+## Production checklist
+
+1. **TLS termination.** Put the broker behind a reverse proxy (nginx,
+   Caddy, Cloudflare). The WebSocket upgrade must reach the broker
+   intact.
+2. **Per-IP rate limit on `/pods`.** The broker itself doesn't
+   rate-limit. Either set this at the reverse proxy or fork the broker
+   to add it.
+3. **Set `connect-src` / `frame-ancestors` overrides** if you serve
+   pods under a different security envelope than the defaults.
+   `createSignalServer({ podHeaderOptions: { csp, permissionsPolicy } })`.
+4. **Monitor `/health`** — it returns the live origin set + active
+   session count. Quick liveness signal.
+5. **Persist `dataDir` across deploys** if using `SqliteRegistry` — by
+   default new container deploys would lose state.
+
+## What you don't get out of the box
+
+- **Account system.** The broker is anonymous. Anyone can `POST /pods`.
+  Add auth at your reverse proxy or fork.
+- **Quota / cleanup.** Old pods stay until you delete them. The
+  `SqliteRegistry` exposes a `deletePod(id)` admin method but the
+  broker has no built-in janitor.
+- **CDN in front of `/:id`.** The broker streams blobs through itself
+  to keep CSP intact. For high-traffic hosts, add a CDN with cache
+  rules tuned to the blob's `Cache-Control: public, max-age=300`.
+
+## See also
+
+- [`@gemmapod/cloud` README](https://github.com/apprider/gemmapod/blob/main/packages/cloud/README.md)
+- [Deploy a pod to a stable URL](/docs/guides/deploy-to-cloud)
+- [Architecture diagram](/docs/introduction/architecture)

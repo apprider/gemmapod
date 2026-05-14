@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.4/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    { "repo": "apprider/gemmapod" }
+  ],
+  "commit": false,
+  "fixed": [],
+  "linked": [["@gemmapod/shim", "@gemmapod/browser"]],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "snapshot": {
+    "useCalculatedVersion": true,
+    "prereleaseTemplate": "{tag}-{commit}"
+  },
+  "ignore": [
+    "@gemmapod/web",
+    "@gemmapod/cloud-firebase"
+  ]
+}

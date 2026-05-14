@@ -1,0 +1,140 @@
+---
+title: Build your first pod (CLI)
+description: pod.toml → signed .html → open in any browser. 60 seconds.
+---
+
+You'll end this page with a `hello-pod.html` you can email, deploy, or
+drop on any page.
+
+## Prereqs
+
+- Node 22+
+- pnpm or npm (examples below use `pnpm dlx`; swap for `npx` if you
+  prefer)
+- Optional: [Ollama](https://ollama.com) running locally with
+  `gemma4:e4b` pulled if you want to chat with a real owner-side model.
+  Without it, the pod still works — the visitor's browser falls back to
+  WebGPU + Gemma 4 E2B.
+
+## Step 1. Scaffold a pod project
+
+```sh
+pnpm dlx @gemmapod/pack init --dir ./hello-pod
+cd ./hello-pod
+```
+
+You now have:
+
+```text
+hello-pod/
+├── pod.toml             # your agent manifest
+├── .gitignore           # ignores keys + dist
+└── embed-example.html   # template for embedding the built pod elsewhere
+```
+
+## Step 2. Generate a signing key
+
+```sh
+pnpm dlx @gemmapod/pack keygen --out owner.key
+# wrote keypair to owner.key
+#   publicKey: 3b3bca711bee628f...
+```
+
+This is your **owner identity**. Keep `owner.key` secret. The CLI
+auto-fills its public counterpart into the signed manifest when you
+build.
+
+## Step 3. Edit `pod.toml`
+
+```toml
+name = "hello-pod"
+persona = "A friendly demo pod."
+model = "gemma4:e4b"
+
+system_prompt = """
+You are a friendly AI agent shipped as a signed HTML file.
+Briefly explain what you are when asked.
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]
+
+[transport.webrtc]
+signal_url = "wss://cloud.gemmapod.com/signal"
+pod_id = "hello-pod"
+
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"
+```
+
+The `signal_url` can point at:
+
+- The public broker at `wss://cloud.gemmapod.com/signal` (open to
+  anyone — convenient for demos).
+- A self-hosted broker (see [self-host signaling](/docs/guides/self-host-signaling)).
+- A local broker for dev (`ws://localhost:8080/signal`).
+
+## Step 4. Sanity-check
+
+```sh
+pnpm dlx @gemmapod/pack doctor pod.toml
+# pod.toml looks fine
+#   transport preferred: webrtc → fallback
+```
+
+## Step 5. Build the pod
+
+```sh
+pnpm dlx @gemmapod/pack build pod.toml --key owner.key --out hello-pod.html
+# wrote hello-pod.html (964.2 KB)
+#   pod id:  hello-pod
+#   signer:  3b3bca711bee628f…
+#   transport preferred: webrtc → fallback
+```
+
+You now have a **964 KB self-contained HTML file**. The CLI also
+round-trip-verifies the signature before writing the artefact, so if you
+see this output, the signature is valid by construction.
+
+## Step 6. Open it
+
+```sh
+open hello-pod.html
+```
+
+What happens:
+
+- If you have an `@gemmapod/origin` daemon running with `POD_ID=hello-pod`
+  pointing at your local Ollama, the pod chats with `gemma4:e4b` on your
+  machine over WebRTC. No bytes go through the cloud.
+- If not, the pod shows a fallback panel: "WebGPU available · model not
+  cached". Click "Download local model" once (~3 GB, then cached forever
+  in the browser), and chat happens entirely in your browser.
+
+## Three ways to ship it
+
+- **Email it.** Attach the `.html`. The recipient opens the attachment;
+  the pod boots, phones home, starts talking.
+- **Embed it.** Drop the `.html` on any web page — or use
+  [`@gemmapod/browser`](/docs/quickstart/first-pod-script) to mount the
+  same agent without the standalone blob.
+- **Deploy it.** `POST` it to a signaling broker's `/pods` endpoint to
+  get a stable URL.
+
+  ```sh
+  curl -X POST -H 'Content-Type: text/html' \
+    --data-binary @hello-pod.html \
+    https://cloud.gemmapod.com/pods
+  # => {"id":"AbC123XyZ_-Q","url":"https://cloud.gemmapod.com/AbC123XyZ_-Q","ownerPubkey":"…"}
+  ```
+
+  Now anyone with that URL can chat with the pod. The signature is
+  re-verified server-side before the blob is stored.
+
+## What's next
+
+- [Build a pod-shaped runtime in React](/docs/quickstart/first-pod-react) — same
+  pod, your own UI.
+- [Add a tool](/docs/guides/add-a-tool) — extend the agent beyond chat.
+- [Run your own origin daemon](/docs/guides/run-own-origin) — host the
+  Gemma model on your machine.

@@ -1,0 +1,160 @@
+---
+title: Embed in React (headless)
+description: Drop the runtime-only IIFE into a React app and render your own transcript + composer.
+---
+
+## When to use this
+
+You're building inside an existing React shell — a CopilotKit-shaped
+host, an AI SDK chat surface, your own design system — and you want
+GemmaPod's runtime (transport, events, state, chat) **without** its
+default Preact widget.
+
+[Runnable version in the repo →](https://github.com/apprider/gemmapod/tree/main/examples/react-headless)
+
+## The two IIFEs
+
+The shim ships **two builds** from the same source tree:
+
+| File                          | Bundles                                                                                       |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| `gemmapod-shim.iife.js`       | Full — runtime + Preact chat widget + boot + signing helpers (~678 KB before gzip).           |
+| `gemmapod-runtime.iife.js`    | Runtime + transports only — no Preact, no `boot`, no signing helpers (~656 KB before gzip).   |
+
+For a headless React embed you want the **runtime-only** build.
+
+## Set up
+
+```sh
+npm i @gemmapod/browser
+```
+
+Then in `index.html` of your Vite/Next.js app:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-runtime.iife.js"></script>
+```
+
+(Or `import "@gemmapod/browser/runtime"` from a bundler — the IIFE
+side-effects `window.GemmaPod` either way.)
+
+## A minimal React component
+
+```tsx
+import { useEffect, useRef, useState } from "react";
+
+export function PodChat() {
+  const [text, setText] = useState("");
+  const [lines, setLines] = useState<Array<{ who: string; text: string }>>([]);
+  const runtimeRef = useRef<any>(null);
+
+  useEffect(() => {
+    let mounted: any;
+    let unsub: Array<() => void> = [];
+
+    (async () => {
+      mounted = await window.GemmaPod.mountPod(null, config, {
+        ui: "none",                 // no Preact widget
+        fallbackUi: "default",      // shim builds the fallback panel for us
+      });
+      runtimeRef.current = mounted.runtime;
+
+      unsub.push(
+        mounted.runtime.events.on("ui.event", ({ event }) => {
+          if (event.type === "TEXT_MESSAGE_CONTENT") {
+            setLines((cur) => appendAssistantDelta(cur, event.delta));
+          }
+        }),
+      );
+    })();
+
+    return () => {
+      unsub.forEach((u) => u());
+      mounted?.destroy();
+    };
+  }, []);
+
+  async function send() {
+    const t = text.trim();
+    if (!t || !runtimeRef.current) return;
+    setLines((cur) => [...cur, { who: "user", text: t }]);
+    setText("");
+    for await (const _chunk of runtimeRef.current.chat.stream(t)) {
+      // Assistant text is rendered through ui.event above; just drain.
+    }
+  }
+
+  return (
+    <div>
+      {lines.map((l, i) => (
+        <div key={i}>
+          <strong>{l.who}:</strong> {l.text}
+        </div>
+      ))}
+      <input value={text} onChange={(e) => setText(e.target.value)} />
+      <button onClick={send}>Send</button>
+    </div>
+  );
+}
+
+const config = {
+  name: "Headless demo",
+  persona: "Demo agent.",
+  systemPrompt: "Be terse.",
+  model: "gemma4:e4b",
+  transport: {
+    webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "demo" },
+    fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+  },
+};
+
+function appendAssistantDelta(
+  cur: Array<{ who: string; text: string }>,
+  delta?: string,
+) {
+  if (!delta) return cur;
+  const last = cur[cur.length - 1];
+  if (last && last.who === "assistant") {
+    return [...cur.slice(0, -1), { who: "assistant", text: last.text + delta }];
+  }
+  return [...cur, { who: "assistant", text: delta }];
+}
+```
+
+## Pattern: mount the fallback panel into your layout
+
+Pass a React `ref` as `fallbackMountParent`. The shim will inject the
+WebGPU prepare panel there instead of `document.body`:
+
+```tsx
+const fallbackHost = useRef<HTMLDivElement | null>(null);
+// …
+await window.GemmaPod.mountPod(null, config, {
+  ui: "none",
+  fallbackUi: "default",
+  fallbackMountParent: fallbackHost.current ?? undefined,
+});
+// …
+return <div ref={fallbackHost} />;
+```
+
+## Pattern: AG-UI-shaped events
+
+If your host already speaks AG-UI (CopilotKit, AI SDK consumers), map
+DARTC events to AG-UI in one call:
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  const aguiEvent = window.GemmaPod.mapDartcUiEventToAgUi(event);
+  copilot.dispatch(aguiEvent); // or your host's equivalent
+});
+```
+
+See [AG-UI bridge](/docs/guides/ag-ui-bridge) for the full mapping.
+
+## What's next
+
+- [`mountPod` options reference](/docs/reference/runtime/mountPod)
+- [`RuntimeEventBus` reference](/docs/reference/runtime/RuntimeEventBus)
+- [CopilotKit-style demo](/docs/guides/copilotkit-style) — side-by-side
+  DARTC vs. AG-UI viewer.

@@ -1,0 +1,92 @@
+---
+title: Transports
+description: The three shipped transports + how to inspect them via the runtime.
+---
+
+## What ships
+
+| Transport     | Source                                                                                                  | When it's used                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `webrtc`      | [`packages/shim/src/transports/webrtc.ts`](https://github.com/apprider/gemmapod/blob/main/packages/shim/src/transports/webrtc.ts) | Primary. DARTC over a WebRTC DataChannel labelled `dartc.v0`.   |
+| `fallback`    | [`packages/shim/src/transports/fallback.ts`](https://github.com/apprider/gemmapod/blob/main/packages/shim/src/transports/fallback.ts) | Owner offline / no WebRTC. WebGPU + transformers.js + Gemma 4. |
+| `direct`      | [`packages/shim/src/transports/direct.ts`](https://github.com/apprider/gemmapod/blob/main/packages/shim/src/transports/direct.ts) | Dev convenience. HTTP straight to a local Ollama.               |
+
+## Selector behaviour
+
+`selectTransport(config)` tries them in fixed order:
+
+1. **`webrtc`** if `config.transport.webrtc` is set. Wait for the data
+   channel to open.
+2. **`fallback`** if `config.transport.fallback` is set **and**
+   `navigator.gpu` exists. Returned **unprepared** — the host must call
+   `prepare()` on a user gesture.
+3. **`direct`** if `config.transport.direct` is set.
+
+`config.transport.preferred = […]` from `pod.toml` is parsed but not
+yet honoured by the selector — it's advisory metadata today.
+
+The selector throws if none succeed; the trace of failures is on
+`runtime.transport.trace`.
+
+## Inspecting the active transport
+
+```ts
+runtime.transport.status;          // "idle" | "connecting" | "ready" | "error" | "destroyed"
+runtime.transport.name;            // "webrtc" | "fallback" | "direct"
+runtime.transport.trace;           // string[] of attempts that failed
+runtime.transport.error;           // last error message
+runtime.transport.webrtcEvents;    // stage events from the WebRTC ladder
+runtime.getTransport();            // the live Transport instance
+```
+
+For a compact one-liner snapshot suitable for status badges or logs:
+
+```ts
+import { quickTransportStatus } from "@gemmapod/browser/runtime";
+
+console.log(quickTransportStatus(runtime));
+// { phase: "ready", transportName: "webrtc", detail: "via webrtc" }
+```
+
+(`quickTransportStatus` is also exposed on the IIFE global as
+`GemmaPod.quickTransportStatus`.)
+
+## attachBrowserFallbackPrepare
+
+If you want the WebGPU fallback panel rendered into a specific DOM node
+**without** using `mountPod`'s `fallbackUi: "default"`:
+
+```ts
+import { attachBrowserFallbackPrepare } from "@gemmapod/browser/runtime";
+
+const unmount = attachBrowserFallbackPrepare(myEl, runtime);
+// later
+unmount();
+```
+
+The panel handles model picker, cache state, WebGPU availability, and
+the explicit prepare button. See
+[in-browser fallback guide](/docs/guides/in-browser-fallback) for the
+UX.
+
+## Direct access to the FallbackTransport
+
+For a fully custom prepare UI:
+
+```ts
+import { FallbackTransport } from "@gemmapod/shim";
+
+const t = runtime.getTransport();
+if (t instanceof FallbackTransport) {
+  await t.prepare((progress) => updateProgressBar(progress));
+}
+```
+
+`prepare()`, `abort()`, `setModel()`, `cacheStatus()` are the lower-level
+hooks the default panel uses internally.
+
+## See also
+
+- [In-browser fallback guide](/docs/guides/in-browser-fallback)
+- [Architecture — transport selection](/docs/introduction/architecture)
+- [DARTC envelope](/docs/reference/dartc/envelope)

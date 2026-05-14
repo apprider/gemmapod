@@ -1,0 +1,34 @@
+name: Question / Help
+description: Ask a usage question, not a bug. Prefer GitHub Discussions for open-ended chat.
+title: "[question] "
+labels: ["question", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For open-ended help, please use
+        [GitHub Discussions](../../discussions) — it's easier for others
+        searching for the same answer. Use this template only when you
+        believe the docs are missing something specific.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+    validations:
+      required: true
+
+  - type: input
+    id: docs-page
+    attributes:
+      label: Docs page where you expected to find the answer
+      placeholder: "https://docs.gemmapod.com/guides/embed-in-nextjs"
+    validations:
+      required: false

@@ -1,0 +1,67 @@
+---
+title: gemmapod build
+description: Sign a pod.toml + owner key into a single self-mounting .html.
+---
+
+## Synopsis
+
+```sh
+gemmapod build <pod.toml> --key <owner.key> --out <agent.html>
+```
+
+## Description
+
+Reads a pod manifest, signs it with the supplied owner key, and writes
+a single self-contained HTML file with:
+
+- The signed CBOR manifest base64-inlined as `__GEMMAPOD_MANIFEST_B64`
+- The WASM core base64-inlined as `__GEMMAPOD_WASM_B64`
+- The shim IIFE inlined as a `<script>`
+- A boot snippet that calls `GemmaPod.boot(document.getElementById("pod"))`
+
+The CLI round-trip-verifies the signature **before** writing the
+artefact. A build that exits 0 has a valid signature by construction.
+
+## Options
+
+| Flag             | Default       | Meaning                                         |
+| ---------------- | ------------- | ----------------------------------------------- |
+| `<pod.toml>`     | _(required)_  | Manifest source file.                           |
+| `--key <path>`   | _(required)_  | Owner keypair JSON (from `gemmapod keygen`).    |
+| `--out <path>`   | _(required)_  | Destination `.html`. Parent directory is created. |
+
+## Example
+
+```sh
+gemmapod build pod.toml --key owner.key --out dist/agent.html
+# wrote dist/agent.html (964.2 KB)
+#   pod id:  hello-pod
+#   signer:  3b3bca711bee628f…
+#   transport preferred: webrtc → fallback
+```
+
+The output is ~960 KB:
+
+- ~342 KB inlined shim IIFE
+- ~305 KB base64-inlined WASM (228 KB raw)
+- ~3 KB CBOR signed manifest
+- HTML chrome + the boot snippet
+
+## What the signed manifest commits to
+
+Everything in `pod.toml` plus the `owner_pubkey` field auto-derived
+from `--key`:
+
+- `name`, `persona`, `system_prompt`, `model`
+- The full `[transport]` block
+- Every `[[tools]]` entry (name + description)
+
+Tampering with any inlined byte of the manifest breaks the signature.
+The browser refuses to mount tampered pods.
+
+## See also
+
+- [`gemmapod init`](/docs/reference/cli/init)
+- [`gemmapod keygen`](/docs/reference/cli/keygen)
+- [`gemmapod doctor`](/docs/reference/cli/doctor)
+- [`pod.toml` reference](/docs/reference/pod-manifest/pod-toml)

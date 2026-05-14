@@ -1,0 +1,28 @@
+# Companion manifest for the minimal-origin example. Build with:
+#   pnpm --filter @gemmapod/pack exec gemmapod keygen --out owner.key
+#   pnpm --filter @gemmapod/pack exec gemmapod build pod.toml --key owner.key --out minimal.html
+#
+# Then start the origin daemon with POD_ID=minimal-origin and open
+# minimal.html in your browser.
+
+name = "minimal-origin"
+persona = "An AI agent connected to a local Ollama through DARTC over WebRTC."
+model = "gemma4:e4b"
+
+system_prompt = """
+You are a friendly AI agent running on the visitor's owner's machine. Speak
+plainly. If asked what you are, explain that you're a "gemmapod" — a single
+signed HTML file that bundles your identity and phones home to a Gemma 4
+model over a WebRTC data channel. The visitor can chat with you wherever you
+get sent.
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]
+
+[transport.webrtc]
+signal_url = "ws://localhost:8080/signal"
+pod_id = "minimal-origin"
+
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"

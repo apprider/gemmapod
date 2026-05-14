@@ -1,0 +1,105 @@
+---
+title: Embed on any page
+description: The script-tag embedding cookbook — pin, hash, and lock down.
+---
+
+## The minimal embed
+
+```html
+<div id="pod"></div>
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
+<script>
+  GemmaPod.mountPod(document.getElementById("pod"), {
+    name: "Embedded pod",
+    persona: "Helpful product explainer.",
+    systemPrompt: "Be terse.",
+    model: "gemma4:e4b",
+    transport: {
+      webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "your-pod-id" },
+      fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+    },
+  });
+</script>
+```
+
+Production deserves more care than that.
+
+## Subresource Integrity
+
+When you load JS from a CDN, **pin the version** AND **add an SRI hash**.
+That way a CDN compromise or a future maintainer republishing the same
+version with different bytes fails closed in every visitor's browser.
+
+```sh
+# Compute SHA-384 of the exact tarball you tested.
+curl -fsSL "https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js" \
+  | openssl dgst -sha384 -binary | openssl base64 -A
+```
+
+Then:
+
+```html
+<script
+  src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"
+  integrity="sha384-PASTE_HASH_HERE"
+  crossorigin="anonymous"
+></script>
+```
+
+## Content Security Policy
+
+The shim needs these `script-src` directives:
+
+| Directive             | Why                                                       |
+| --------------------- | --------------------------------------------------------- |
+| `'self'`              | Your page's own scripts                                   |
+| `'unsafe-inline'`     | The shim's inlined boot snippet runs from a `<script>` element with body content |
+| `'wasm-unsafe-eval'`  | `WebAssembly.instantiate(...)` for the inlined WASM core  |
+| `https://cdn.jsdelivr.net` | The shim IIFE itself when CDN-loaded                 |
+
+For `connect-src` you need:
+
+| Directive             | Why                                                       |
+| --------------------- | --------------------------------------------------------- |
+| `wss:`                | WebRTC signaling endpoint(s) the manifest may specify     |
+| `stun:`               | STUN servers for ICE                                      |
+| `https://huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co` | Only if you ship the WebGPU fallback path |
+| `https://cdn.jsdelivr.net` | Only if you ship the WebGPU fallback path — `transformers.js` |
+
+`gemmapod.com/<id>`-served pods already ship a strict CSP with these
+exact directives. If you embed via a `<script>` tag on your own page,
+copy them into your `Content-Security-Policy` response header.
+
+## Hosting the IIFE yourself
+
+Don't trust jsDelivr's uptime? Host the shim on your own static
+infrastructure:
+
+```sh
+curl -fsSL "https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js" \
+  > public/vendor/gemmapod-shim.iife.js
+```
+
+And reference it as `/vendor/gemmapod-shim.iife.js`. CSP simplifies
+significantly when everything is `'self'`.
+
+## Cleanup on SPA navigation
+
+The runtime keeps a WebRTC peer connection alive until you destroy it.
+On route changes:
+
+```js
+let current;
+GemmaPod.mountPod(el, config).then((m) => (current = m));
+
+window.addEventListener("popstate", async () => {
+  if (current) await current.destroy();
+  current = undefined;
+});
+```
+
+## See also
+
+- [`mountPod` options reference](/docs/reference/runtime/mountPod)
+- [Embed in Next.js](/docs/guides/embed-in-nextjs) — App Router pattern
+- [Security model](/docs/protocol/security-model)

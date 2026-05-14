@@ -1,0 +1,60 @@
+version: 2
+updates:
+  # npm — single root entry covers the pnpm workspace.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    versioning-strategy: "increase-if-necessary"
+    labels:
+      - "dependencies"
+    groups:
+      typescript-tooling:
+        patterns:
+          - "typescript"
+          - "tsx"
+          - "@types/*"
+      vite-preact:
+        patterns:
+          - "vite"
+          - "@preact/*"
+          - "preact"
+      changesets:
+        patterns:
+          - "@changesets/*"
+      hono-stack:
+        patterns:
+          - "hono"
+          - "@hono/*"
+          - "ws"
+          - "@types/ws"
+    ignore:
+      # node-datachannel ABI changes need a coordinated test pass on all OSes.
+      # We bump it deliberately, not via Dependabot.
+      - dependency-name: "node-datachannel"
+
+  # Rust (Cargo) — wasm-pack core
+  - package-ecosystem: "cargo"
+    directory: "/packages/core"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "rust"
+
+  # GitHub Actions versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"

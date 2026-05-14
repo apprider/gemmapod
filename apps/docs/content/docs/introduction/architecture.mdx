@@ -1,0 +1,128 @@
+---
+title: Architecture
+description: Where the bytes flow and where the trust boundaries are.
+---
+
+## The diagram
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│  POD BLOB  (one .html, ~960 KB)                                  │
+│   ├─ signed manifest  (Ed25519 over CBOR)                        │
+│   ├─ WASM core        (Rust: sig verify + DARTC signing)         │
+│   └─ shim             (Preact UI, runtime, transports)           │
+└──────────┬────────────────────────────────────────┬──────────────┘
+   DARTC   │ over WebRTC (primary)       transformers.js │ (fallback)
+           ▼                                            ▼
+   ┌──────────────────┐                       ┌──────────────────┐
+   │ origin daemon    │                       │ Gemma 4 E2B in   │
+   │ (owner's box)    │                       │ visitor's browser│
+   │  → Ollama        │                       │ (WebGPU, q4)     │
+   │  → Gemma 4 E4B   │                       └──────────────────┘
+   └──────────┬───────┘
+              │ persistent WSS
+              ▼
+   ┌──────────────────────────────────────────────────┐
+   │ @gemmapod/cloud  (signaling broker + registry)   │
+   │  • WS  /signal     SDP rendezvous only           │
+   │  • POST /pods      upload signed blob            │
+   │  • GET  /:id       serve via configured Registry │
+   └──────────────────────────────────────────────────┘
+```
+
+## Bytes-flow walkthrough
+
+### 1. Pod build
+
+```sh
+gemmapod build pod.toml --key owner.key --out my-pod.html
+```
+
+The CLI reads `pod.toml`, runs `GemmaPodCore.signManifest(manifest, key)`
+via WASM (Node target), inlines the resulting CBOR + signature + the
+prebuilt shim IIFE + the WASM bytes (as a `data:` URL) into a 960 KB
+HTML template, and writes the artefact. **No network.** The pack CLI
+also round-trip-verifies before emitting; a bad signature here is a CLI
+error, not a runtime surprise.
+
+### 2. Pod boot
+
+The visitor opens the `.html`. The inlined `<script>` calls
+`GemmaPod.boot(el)`:
+
+1. Init WASM core from inlined bytes (~0 ms; no fetch).
+2. `GemmaPodCore.verifyManifest(b64ToBytes(manifestB64))`. **Fails closed**
+   — a tampered manifest shows the user a red refusal box.
+3. Translate the verified manifest into a `PodConfig` (browser-shape).
+4. `mountPod(el, config, { fallbackUi: "default" })` — constructs the
+   runtime, mounts the Preact widget, attaches the WebGPU prepare panel
+   if a fallback transport is configured.
+
+### 3. Transport selection
+
+`selectTransport(config)`:
+
+1. **WebRTC first.** Open a WebSocket to `transport.webrtc.signalUrl`.
+   Wait for the data channel labelled `dartc.v0` to open. If the broker
+   says `origin offline`, drop through.
+2. **Fallback.** Construct (but do not prepare) a `FallbackTransport`.
+   The host UI shows a panel; nothing downloads until the user clicks.
+3. **Direct.** A development convenience — straight HTTP to a local
+   Ollama. Only useful when visitor and Ollama are on the same LAN.
+
+### 4. DARTC handshake (WebRTC path)
+
+Once the data channel opens, both peers exchange signed `dartc.hello`
+envelopes. The visitor side generates an ephemeral Ed25519 session key;
+the origin side signs with its own session key. Both sign a copy of the
+signed pod manifest into the hello payload so the origin can verify
+identity and the visitor knows it's talking to the right owner.
+
+The origin also sends an A2A-shaped `AgentCard` on `a2a.discovery`,
+exposing the signed tools as A2A skills.
+
+### 5. Chat
+
+Visitor sends `gemmapod.chat.request` over the channel. Origin streams
+back `gemmapod.chat.delta` frames and, interleaved, signed
+`gemmapod.ui.event` envelopes — run lifecycle, tool calls, state
+snapshots, custom events. The runtime auto-applies `STATE_*` events
+into `runtime.state`, `MESSAGES_SNAPSHOT` into `runtime.chat`, and
+re-emits everything as `ui.event` on the bus.
+
+### 6. Conversation memory
+
+The browser keeps a stable `conversationId` per `(pod, origin)` pair in
+`localStorage`. A page refresh creates a fresh WebRTC peer and a new
+ephemeral DARTC session key, but the runtime sends the **same**
+`conversationId` in the next `dartc.hello` so the origin can reattach
+to the existing thread.
+
+The origin daemon stores conversation memory in a local SQLite at
+`~/.gemmapod/origin.sqlite` keyed by `(podId, conversationId)`. The
+WebRTC peer is short-lived; the conversation is durable.
+
+## Trust boundaries
+
+| Boundary               | Trust assumption                                                 |
+| ---------------------- | ---------------------------------------------------------------- |
+| Manifest signature     | Visitors trust the owner pubkey, the way you trust an email sender. |
+| WASM core              | Same Rust source on every side. `pkg/` (web) and `pkg-node/` (node) cannot drift. |
+| DARTC frame signing    | Ephemeral session keys; replay window enforced by `msg_id`.      |
+| Tool execution         | Origin daemon enforces the manifest's signed allow-list. Pods cannot escalate. |
+| Cloud broker           | Carries SDP + signed blobs only. Never sees chat plaintext.       |
+| In-browser fallback    | Visitor's machine runs the model entirely; no network during chat. |
+
+Detailed threat model: [Security model](/docs/protocol/security-model).
+
+## Where each package fits
+
+| Package              | Role                                              |
+| -------------------- | ------------------------------------------------- |
+| `@gemmapod/core`     | Rust → WASM. Signs and verifies manifests + DARTC bytes. |
+| `@gemmapod/dartc`    | Envelope types, canonical JSON, topic helpers, UI-event types. No deps. |
+| `@gemmapod/shim`     | Browser runtime + Preact widget. Two IIFEs (full + runtime-only). |
+| `@gemmapod/browser`  | npm/CDN wrapper around the two IIFEs.             |
+| `@gemmapod/pack`     | The `gemmapod` CLI: init / keygen / doctor / build. |
+| `@gemmapod/origin`   | Owner-side daemon. WebRTC + Ollama proxy + SQLite memory + signed tool registry. |
+| `@gemmapod/cloud`    | Reference signaling broker + pod registry. `Registry` interface — Memory + Sqlite ship; plug in your own. |

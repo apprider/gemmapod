@@ -1,0 +1,89 @@
+---
+title: GemmaPod
+description: Composable, portable AI agent capsules — built on Gemma 4, signed end-to-end, and runnable anywhere a browser is.
+---
+
+> A **GemmaPod** is a single signed `.html` file (~960 KB) that bundles an
+> AI agent's identity, persona, tools, and transport into one capsule. You
+> can **email it**, **embed it** with one `<script>` tag, or **deploy it**
+> to a stable URL.
+
+When activated, the pod phones home over WebRTC to a Gemma 4 model running
+on the owner's machine. If the owner is offline, it falls back to Gemma 4
+running entirely in the visitor's browser via WebGPU. No middle servers.
+No proxy. No chat plaintext touching the cloud.
+
+## Why portable agents
+
+Most "Gemma demo" projects end up as chatbots. Useful, but the model is
+the whole product. GemmaPod inverts that — **the model is one of the
+cheapest parts of the system**. What this SDK builds is the envelope
+around it: a signed, transport-aware AI agent capsule that you actually
+hand to other people.
+
+Examples of what a pod can be:
+
+- A **portable AI business card** that runs your persona on your home
+  machine, embeddable on anyone's site.
+- A **take-home product demo** — a SaaS company emails a prospect a
+  `.html` that explains their product and lets them kick the tires.
+- A **restaurant or front-desk pod** that takes orders / answers FAQs
+  with a real cart driven by `STATE_SNAPSHOT` events.
+- A **negotiator** that goes places for you, carrying a signed allow-list
+  of tools.
+
+## Architecture in one diagram
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│  POD BLOB  (one .html, ~960 KB)                                │
+│   ├─ signed manifest  (Ed25519 over CBOR)                      │
+│   ├─ WASM core        (Rust: sig verify + DARTC signing)       │
+│   └─ shim             (Preact UI + runtime + transports)       │
+└──────────┬─────────────────────────────────────┬───────────────┘
+   DARTC   │ over WebRTC (primary)  transformers.js │ (fallback)
+           ▼                                        ▼
+  ┌────────────────┐                     ┌────────────────────┐
+  │ origin daemon  │                     │ Gemma 4 E2B in     │
+  │ (owner's box)  │                     │ visitor's browser  │
+  │  → Ollama      │                     │ (WebGPU, q4)       │
+  │  → Gemma 4 E4B │                     └────────────────────┘
+  └────────┬───────┘
+           │ persistent WSS
+           ▼
+  ┌─────────────────────────────────────────┐
+  │ signaling broker + pod registry         │
+  │  • WS /signal     SDP rendezvous only   │
+  │  • POST /pods     upload signed blob    │
+  │  • GET  /:id      serve via storage     │
+  └─────────────────────────────────────────┘
+```
+
+## Five-minute tour
+
+<Cards>
+  <Card href="/docs/introduction/what-is-gemmapod" title="What is GemmaPod?" />
+  <Card href="/docs/introduction/core-concepts" title="Core concepts" />
+  <Card href="/docs/quickstart/first-pod-cli" title="Build your first pod" />
+  <Card href="/docs/quickstart/first-pod-script" title="Embed via a script tag" />
+</Cards>
+
+## The Gemma 4 lineup, used intentionally
+
+| Variant            | Where it runs                                    | Why                                                                |
+| ------------------ | ------------------------------------------------ | ------------------------------------------------------------------ |
+| Gemma 4 E2B        | Visitor's browser via transformers.js + WebGPU   | ~1 GB at q4. The fallback that keeps the pod alive when origin is offline. |
+| Gemma 4 E4B        | Owner's machine via Ollama                       | Primary path. Strong instruction following over a WebRTC data channel. |
+| Gemma 4 31B Dense  | Same Ollama endpoint, opt-in per request         | "Heavy mode" for pods that need deeper reasoning.                  |
+| Gemma 4 26B MoE    | Optional sidecar                                 | High-throughput batch tools (RAG, planning).                       |
+
+## Project status
+
+GemmaPod ships **seven npm packages** under the `@gemmapod` scope, plus
+Docker images for the daemon and signaling broker. v0.1 freezes the public
+surface; minor bumps may still tweak APIs as the SDK settles.
+
+[Source on GitHub](https://github.com/apprider/gemmapod) ·
+[Changelog](/docs/changelog) ·
+[Security model](/docs/protocol/security-model) ·
+[MIT licensed](https://github.com/apprider/gemmapod/blob/main/LICENSE)

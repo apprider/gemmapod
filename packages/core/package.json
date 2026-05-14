@@ -1,0 +1,79 @@
+{
+  "name": "@gemmapod/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Rust → WASM core for GemmaPod: signed manifest (CBOR + Ed25519) and DARTC byte signing/verifying. Same code runs in browsers (wasm-pack --target web) and in Node (wasm-pack --target nodejs); the parent package exports both via the .web and .node subpaths.",
+  "keywords": [
+    "gemmapod",
+    "wasm",
+    "ed25519",
+    "cbor",
+    "signing",
+    "manifest",
+    "rust"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./pkg-node/gemmapod_core.js",
+  "types": "./pkg-node/gemmapod_core.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./pkg-node/gemmapod_core.d.ts",
+        "import": "./pkg-node/gemmapod_core.js",
+        "require": "./pkg-node/gemmapod_core.js",
+        "default": "./pkg-node/gemmapod_core.js"
+      },
+      "browser": {
+        "types": "./pkg/gemmapod_core.d.ts",
+        "import": "./pkg/gemmapod_core.js",
+        "default": "./pkg/gemmapod_core.js"
+      },
+      "default": {
+        "types": "./pkg-node/gemmapod_core.d.ts",
+        "import": "./pkg-node/gemmapod_core.js",
+        "default": "./pkg-node/gemmapod_core.js"
+      }
+    },
+    "./web": {
+      "types": "./pkg/gemmapod_core.d.ts",
+      "import": "./pkg/gemmapod_core.js",
+      "default": "./pkg/gemmapod_core.js"
+    },
+    "./node": {
+      "types": "./pkg-node/gemmapod_core.d.ts",
+      "import": "./pkg-node/gemmapod_core.js",
+      "require": "./pkg-node/gemmapod_core.js",
+      "default": "./pkg-node/gemmapod_core.js"
+    },
+    "./pkg/*": "./pkg/*",
+    "./pkg-node/*": "./pkg-node/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "pkg",
+    "pkg-node",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "wasm-pack build --target web --release --out-dir pkg && wasm-pack build --target nodejs --release --out-dir pkg-node && node scripts/postbuild.mjs",
+    "postbuild": "node scripts/postbuild.mjs",
+    "prepublishOnly": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

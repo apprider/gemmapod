@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel previous in-flight runs for the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-pack:
+    name: Build · Test · Pack (ubuntu-latest · node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Setup Rust (stable + wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/core/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/core/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked --version 0.13.1
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @gemmapod/core (WASM web + node)
+        run: pnpm build:core
+
+      - name: Build @gemmapod/* packages
+        run: pnpm -r --filter "./packages/**" build
+
+      - name: Test @gemmapod/dartc
+        run: pnpm --filter @gemmapod/dartc test
+
+      - name: Verify Changesets state
+        run: pnpm changeset status --since=origin/main || true
+
+      - name: Verify npm tarballs (dry-run)
+        run: |
+          set -e
+          for pkg in dartc core shim browser pack origin; do
+            echo "::group::npm pack --dry-run @gemmapod/$pkg"
+            (cd "packages/$pkg" && npm pack --dry-run 2>&1)
+            echo "::endgroup::"
+          done
+
+      - name: End-to-end CLI smoke (keygen + init + build)
+        run: |
+          set -e
+          tmp="$(mktemp -d)"
+          node packages/pack/dist/cli.js keygen --out "$tmp/owner.key"
+          node packages/pack/dist/cli.js init --dir "$tmp"
+          node packages/pack/dist/cli.js build "$tmp/pod.toml" \
+            --key "$tmp/owner.key" --out "$tmp/agent.html"
+          grep -q "__GEMMAPOD_WASM_B64" "$tmp/agent.html"
+          grep -q "__GEMMAPOD_MANIFEST_B64" "$tmp/agent.html"
+          grep -q "GemmaPod.boot" "$tmp/agent.html"
+          ls -lh "$tmp/agent.html"

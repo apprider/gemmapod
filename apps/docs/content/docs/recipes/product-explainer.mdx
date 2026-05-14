@@ -1,0 +1,76 @@
+---
+title: Product explainer
+description: A take-home product demo. The prospect chats with the pod instead of sitting through a sales call.
+---
+
+## The pattern
+
+- Persona = "the helpful product expert for [X]"
+- System prompt encodes everything the prospect should be able to learn
+- Tools call your real docs / CRM / scheduling API
+- Sent as an email attachment or deployed to a stable URL
+
+The pod becomes a **read-only, signed, embeddable, sendable** sales
+engineer the prospect can talk to on their schedule.
+
+## `pod.toml`
+
+```toml
+name = "acme-explainer"
+persona = "Friendly product expert for Acme."
+model = "gemma4:e4b"
+
+system_prompt = """
+You are an AI product expert for Acme. You can:
+  - Walk the visitor through Acme's product.
+  - Search the Acme knowledge base via the `search_kb` tool.
+  - Look up the visitor's preferences (if they share an email).
+  - Book a call with a human via the `book_call` tool.
+
+Be helpful and concise. NEVER make up pricing or feature claims; if
+unsure, call `search_kb` first.
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]
+
+[transport.webrtc]
+signal_url = "wss://signal.acme.com/signal"   # self-hosted broker
+pod_id = "acme-explainer-2026q2"
+
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"
+
+[[tools]]
+name = "search_kb"
+description = "Search Acme's product knowledge base. Use this before answering any question about pricing or features."
+
+[[tools]]
+name = "book_call"
+description = "Book a 20-minute call with an Acme product specialist. Pass email + suggested time."
+```
+
+## What goes in the email
+
+- A short pitch ("here's a 1-MB attachment that explains the product as
+  fast as you want to learn").
+- The signed `.html`.
+- A link to the deployed URL on `signal.acme.com/<id>` as a backup for
+  email clients that strip HTML attachments.
+
+## Production notes
+
+- **Self-host the signaling broker** under your own domain so the
+  prospect's browser dials `acme.com`, not `gemmapod.com`. See
+  [self-host signaling](/docs/guides/self-host-signaling).
+- **Run the origin under launchd / systemd** with `OWNER_PUBKEY` set so
+  only your signed manifest can talk to your tools.
+- **Sign a fresh pod per quarter** with a new `pod_id` (e.g.
+  `acme-explainer-2026q2`). Old pods stop chatting once you stop
+  registering the old `POD_ID` with the broker.
+
+## See also
+
+- [Send a pod by email](/docs/guides/send-pod-by-email)
+- [Deploy to a stable URL](/docs/guides/deploy-to-cloud)
+- [Run your own origin](/docs/guides/run-own-origin)

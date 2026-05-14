@@ -1,0 +1,78 @@
+---
+title: Contributing
+description: How to set up the monorepo, propose changes, and ship a release.
+---
+
+Full guide lives at
+[`CONTRIBUTING.md`](https://github.com/apprider/gemmapod/blob/main/CONTRIBUTING.md)
+in the repo. This page is the short version.
+
+## Setup
+
+```sh
+git clone https://github.com/apprider/gemmapod
+cd gemmapod
+pnpm install
+pnpm build:core                # rebuilds @gemmapod/core (Rust → WASM)
+pnpm -r --filter "./packages/*" build
+pnpm --filter @gemmapod/dartc test
+pnpm --filter @gemmapod/cloud test
+```
+
+You need:
+- Node **22+**
+- pnpm **9+** (`corepack enable && corepack prepare pnpm@9 --activate`)
+- Rust stable + `wasm32-unknown-unknown` + `wasm-pack` — **only** if
+  rebuilding `@gemmapod/core`. Otherwise the committed
+  `packages/core/pkg{,-node}/` artefacts work.
+
+## Branch + PR flow
+
+1. **Open an issue** for non-trivial changes so we agree on direction.
+2. **Branch** from `main`.
+3. **Add a changeset** (`pnpm changeset`) for anything that affects a
+   published package.
+4. **Open the PR**. CI runs build + dartc + cloud tests + `npm pack
+   --dry-run` + an end-to-end CLI smoke. If you touched
+   `packages/origin/**`, the native build matrix also runs on macOS /
+   Linux / Windows.
+
+## Versioning policy
+
+- **npm packages** follow [semver](https://semver.org). We are at 0.x;
+  minor bumps may include breaking changes — flagged in
+  [`CHANGELOG.md`](/docs/changelog).
+- **DARTC wire format** carries its own `v0.2` version. A patch bump
+  of any package MUST NOT change the wire format. [More →](/docs/protocol/versioning)
+- **Signed manifest CBOR** carries its own `v=1` schema. Backwards-
+  compatible additions only without a version bump.
+
+## Style
+
+- TypeScript strict mode is on. No `any` without a reason in a comment.
+- Rust (`packages/core`): keep the `wasm-bindgen` surface narrow.
+- Don't write comments that restate the code. Comment **why**: a hidden
+  constraint, a security invariant, a browser quirk.
+- Don't ship feature flags or backwards-compatibility shims for code
+  that hasn't been released.
+
+## Snapshot releases for PR testing
+
+Maintainers can publish a snapshot of any open PR (e.g.
+`@gemmapod/shim@0.1.1-pr-42-<sha>`) so consumers can test before merge:
+
+```sh
+pnpm changeset:snapshot
+```
+
+## Security issues
+
+**Don't open a public issue.** Use [GitHub's private security advisory
+flow](https://github.com/apprider/gemmapod/security/advisories/new)
+or email `raj.design@gmail.com` with subject `[gemmapod-sec]`.
+
+## License
+
+By contributing you agree your contributions are licensed under the
+MIT License (see
+[`LICENSE`](https://github.com/apprider/gemmapod/blob/main/LICENSE)).

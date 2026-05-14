@@ -1,0 +1,97 @@
+---
+title: Signed manifest
+description: The on-wire format the browser, CLI, and cloud all verify.
+---
+
+## Wire shape
+
+The signed manifest is a CBOR-encoded envelope:
+
+```text
+SignedManifest = {
+  body:   bytes,   # the CBOR-encoded Manifest body (verbatim)
+  sig:    bytes,   # raw Ed25519 signature over `body`
+}
+```
+
+The signature covers **the exact CBOR bytes the signer produced**, not
+a re-encoded copy. This is intentional: different CBOR encoders can
+produce subtly different byte sequences for the same logical object,
+and a re-encoded verifier wouldn't agree with the signer. Carrying
+`body` as opaque bytes makes the wire format immune to that drift.
+
+## Manifest body fields
+
+```text
+Manifest = {
+  v:             u32,        # schema version (currently 1)
+  id:            string,     # pod id
+  name:          string,
+  persona:       string,
+  system_prompt: string,
+  model:         string,
+  owner_pubkey:  string (hex),  # auto-filled from --key
+  transport:     {…},        # mirrors pod.toml's [transport] section
+  tools?:        [{ name, description }, …],
+}
+```
+
+## Where it lives in a packed `.html`
+
+Two base64-inlined globals:
+
+```html
+<script>
+  window.__GEMMAPOD_MANIFEST_B64 = "…";   /* base64(SignedManifest CBOR) */
+  window.__GEMMAPOD_WASM_B64     = "…";   /* base64(gemmapod_core_bg.wasm) */
+</script>
+<script>/* @gemmapod/browser IIFE inlined here */</script>
+<script>GemmaPod.boot(document.getElementById("pod"));</script>
+```
+
+`boot()` reads both globals, initialises the WASM core, calls
+`GemmaPodCore.verifyManifest(b64ToBytes(__GEMMAPOD_MANIFEST_B64))`, and
+either mounts the runtime or shows a visible red error box.
+
+## Verification API
+
+The same WASM is built for both web (`pkg/`) and node (`pkg-node/`)
+targets so the verifier code path is byte-identical everywhere.
+
+```ts
+// JS / TS
+import init, { GemmaPodCore } from "@gemmapod/core/web";
+await init({ module_or_path: wasmBytes });
+
+const manifest = GemmaPodCore.verifyManifest(signedBytes);
+// throws on bad signature; returns Manifest on success.
+```
+
+The Rust API surface:
+
+```rust
+GemmaPodCore::testing::verify(&bytes) -> Result<Manifest, String>
+GemmaPodCore::testing::sign(manifest, &secret_hex) -> Vec<u8>
+GemmaPodCore::testing::generate_key() -> (pubkey_hex, secret_hex)
+GemmaPodCore::testing::sign_bytes(payload, &secret_hex) -> Vec<u8>
+GemmaPodCore::testing::verify_bytes(payload, signature, &public_hex) -> Result<(), String>
+```
+
+## Multi-side verification
+
+Three places verify the **same** bytes via the **same** code:
+
+1. **Browser shim** — before mounting any UI.
+2. **`@gemmapod/pack`** — before writing the `.html` artefact
+   (round-trip check).
+3. **`@gemmapod/cloud`** — before storing a blob uploaded via `POST /pods`.
+
+Adding a fourth verifier means using the same WASM artefact, not
+re-implementing the parser.
+
+## See also
+
+- [`pod.toml` reference](/docs/reference/pod-manifest/pod-toml)
+- [`gemmapod build`](/docs/reference/cli/build)
+- [Security model](/docs/protocol/security-model)
+- [`@gemmapod/core` README](https://github.com/apprider/gemmapod/blob/main/packages/core/README.md)

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/apprider/gemmapod/discussions
+    about: Open-ended questions, ideas, and show-and-tell.
+  - name: 📖 Documentation
+    url: https://docs.gemmapod.com
+    about: Quickstart, guides, API reference, and protocol specs.
+  - name: 🔒 Report a vulnerability privately
+    url: https://github.com/apprider/gemmapod/security/advisories/new
+    about: Use GitHub's private security advisory flow — do not open a public issue.

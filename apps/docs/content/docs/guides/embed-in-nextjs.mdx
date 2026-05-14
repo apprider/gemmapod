@@ -1,0 +1,149 @@
+---
+title: Embed in Next.js
+description: App Router client component + Next.js `<Script>` + workspace-to-npm portable copy-shim.
+---
+
+The runnable version of this guide lives at
+[`examples/nextjs-embed`](https://github.com/apprider/gemmapod/tree/main/examples/nextjs-embed).
+
+## App Router setup
+
+```sh
+npm i @gemmapod/browser
+```
+
+Add a `predev` / `prebuild` step that copies the IIFE into `public/`:
+
+```js
+// scripts/copy-shim.mjs
+import { copyFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const src = require.resolve("@gemmapod/browser/dist/gemmapod-shim.iife.js");
+const destDir = join(process.cwd(), "public", "vendor");
+mkdirSync(destDir, { recursive: true });
+copyFileSync(src, join(destDir, "gemmapod-shim.iife.js"));
+```
+
+```json
+// package.json
+{
+  "scripts": {
+    "predev": "node scripts/copy-shim.mjs",
+    "prebuild": "node scripts/copy-shim.mjs"
+  }
+}
+```
+
+## Mount in a client component
+
+```tsx
+// app/Pod.tsx
+"use client";
+
+import Script from "next/script";
+import { useEffect, useRef, useState } from "react";
+
+export function Pod() {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!ready || !hostRef.current) return;
+    let killed = false;
+    let mounted: { destroy(): Promise<void> } | null = null;
+
+    (window as any).GemmaPod
+      .mountPod(hostRef.current, config)
+      .then((m: any) => {
+        if (killed) return void m.destroy();
+        mounted = m;
+      });
+
+    return () => {
+      killed = true;
+      mounted?.destroy();
+    };
+  }, [ready]);
+
+  return (
+    <>
+      <Script
+        src="/vendor/gemmapod-shim.iife.js"
+        strategy="afterInteractive"
+        onReady={() => setReady(true)}
+      />
+      <div ref={hostRef} />
+    </>
+  );
+}
+
+const config = {
+  name: "Demo",
+  persona: "App Router pod.",
+  systemPrompt: "Be terse.",
+  model: "gemma4:e4b",
+  transport: {
+    webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "demo" },
+    fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+  },
+};
+```
+
+## Use it on a page
+
+```tsx
+// app/page.tsx
+import { Pod } from "./Pod";
+
+export default function Home() {
+  return (
+    <main>
+      <h1>My agent</h1>
+      <Pod />
+    </main>
+  );
+}
+```
+
+## Server components don't touch the runtime
+
+The runtime is browser-only — it needs `window`, `WebRTC`, and
+`WebGPU`. Always mount through a `"use client"` component. Server
+components are safe to render around it.
+
+## CSP via `next.config.mjs`
+
+```js
+export default {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+              "connect-src 'self' wss: stun: https://huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co https://cdn.jsdelivr.net",
+              "img-src 'self' data: blob:",
+              "worker-src 'self' blob:",
+              "style-src 'self' 'unsafe-inline'",
+            ].join("; "),
+          },
+        ],
+      },
+    ];
+  },
+};
+```
+
+## What's next
+
+- [Headless mode](/docs/guides/headless-mode) — drop the Preact widget,
+  render your own UI.
+- [Embed via `<script>` tag](/docs/quickstart/first-pod-script) — same
+  config, no Next.js required.

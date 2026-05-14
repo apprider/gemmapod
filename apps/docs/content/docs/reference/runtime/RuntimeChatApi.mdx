@@ -1,0 +1,108 @@
+---
+title: RuntimeChatApi
+description: Environment-neutral chat. Stream, send, history, setHistory, clear.
+---
+
+## Type
+
+```ts
+interface RuntimeChatApi {
+  stream(input: string | RuntimeChatInput): AsyncIterable<ChatChunk>;
+  send(input: string | RuntimeChatInput): Promise<string>;
+  history(): ChatMessage[];
+  setHistory(messages: ChatMessage[]): void;
+  clear(): Promise<void>;
+}
+
+interface RuntimeChatInput {
+  messages?: ChatMessage[];
+  text?: string;
+  model?: string;
+  conversationId?: string;
+  signal?: AbortSignal;
+  metadata?: Record<string, unknown>;
+}
+
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+type ChatChunk = { delta: string; done: boolean };
+```
+
+## Methods
+
+### `stream(input)`
+
+Yields `{ delta, done }` chunks as the model generates. Auto-connects the
+transport on first call.
+
+- **String input**: appends `{ role: "user", content: input }` to the
+  existing history before streaming.
+- **`{ messages }`**: send a custom message array. Replaces history for
+  this turn but doesn't overwrite the stored history (the runtime adds
+  the new user message + assistant response to history after the stream
+  completes).
+- **`{ text }`**: equivalent to passing the string directly.
+
+```ts
+for await (const chunk of runtime.chat.stream("hello")) {
+  appendDelta(chunk.delta);
+  if (chunk.done) break;
+}
+```
+
+### `send(input)`
+
+Streams the response internally and resolves to the full assistant text.
+
+```ts
+const reply = await runtime.chat.send("hello");
+```
+
+### `history()`
+
+Returns the current chat history (user + assistant messages). Doesn't
+include `system` messages — those come from the signed manifest's
+`system_prompt` on each request.
+
+### `setHistory(messages)`
+
+Replace the chat history. Used internally by the
+[`MESSAGES_SNAPSHOT`](/docs/reference/dartc/ui-events#messages_snapshot)
+auto-routing; useful in tests and for hosts implementing manual
+rehydration.
+
+### `clear()`
+
+Drop the history. The `conversationId` stays the same — only the
+visible messages clear. The origin daemon's conversation memory is
+unaffected.
+
+## Streaming with cancellation
+
+Pass an `AbortSignal` in the input object:
+
+```ts
+const ctrl = new AbortController();
+setTimeout(() => ctrl.abort(), 5000);
+
+for await (const chunk of runtime.chat.stream({ text: "tell me a story", signal: ctrl.signal })) {
+  // …
+}
+```
+
+The runtime forwards the signal to the underlying transport. WebRTC
+transport closes the in-flight request frame; the fallback transport
+stops generation.
+
+## Hooks for advanced flows
+
+| Hook                                     | When to reach for it                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `runtime.events.on("ui.event", …)` filtered to `TEXT_MESSAGE_*` | Streaming text into a custom transcript without using `chat.stream`'s chunks directly. |
+| `runtime.events.on("chat.history", …)` | React when history changes from **any** source (your input, `MESSAGES_SNAPSHOT`, `setHistory`, `clear`). |
+| `runtime.state.subscribe(…)`           | Shared structured state outside of chat (carts, dashboards). |
+
+## See also
+
+- [`GemmaPodRuntime`](/docs/reference/runtime/GemmaPodRuntime)
+- [`RuntimeEventBus`](/docs/reference/runtime/RuntimeEventBus)
+- [Conversation memory](/docs/guides/conversation-memory)

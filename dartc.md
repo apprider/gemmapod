@@ -1,0 +1,557 @@
+# DARTC Protocol Specification v0.2
+
+Distributed Agent Real-Time Communication
+
+Status: Shipped (browser ⇄ origin chat + UI events). Reserved-topic relay + CBOR framing remain future work.
+Date: May 14, 2026
+Maintainer: GemmaPod Project
+License: MIT
+
+## 1. Summary
+
+DARTC is the real-time transport layer for portable AI agents. It defines a
+signed, topic-multiplexed message envelope over WebRTC DataChannels, with a
+WebSocket relay fallback when peer-to-peer connectivity fails.
+
+DARTC is designed to carry A2A messages without replacing A2A:
+
+- A2A is the semantic layer: Agent Cards, messages, tasks, artifacts, and agent
+  capability discovery.
+- DARTC is the real-time binding: low-latency peer-to-peer delivery, streaming,
+  topic multiplexing, acknowledgements, and session policy.
+- MCP remains the tool/data access layer behind an agent runtime.
+
+In GemmaPod, the signed pod manifest is the initial trust anchor. DARTC messages
+then provide session-level integrity, topic routing, replay defense, and a clean
+path to A2A-compatible agent-to-agent interaction.
+
+## 2. Current A2A Alignment
+
+DARTC v0.2 targets the current Agent2Agent model:
+
+- Agent discovery uses an `AgentCard`.
+- Interaction payloads use `Message`, `Task`, `Artifact`, and `Part` objects.
+- Streaming should be modeled as task/message updates and stream closure, not as
+  a custom final task status.
+- A2A protocol bindings may include HTTP+JSON, JSON-RPC, gRPC, and this DARTC
+  binding.
+
+DARTC topics beginning with `a2a.` MUST carry A2A-shaped objects in the `a2a`
+field. DARTC-specific streaming metadata belongs in the `dartc` field.
+
+## 3. Envelope
+
+Every DARTC frame is one JSON object.
+
+```ts
+type DartcEnvelope<TPayload = unknown, TA2A = unknown> = {
+  version: "0.2";
+  msg_id: string;
+  from: string;
+  to: string;
+  topic: string;
+  timestamp: number;
+  signature: string;
+  a2a?: TA2A;
+  dartc?: {
+    stream?: boolean;
+    chunk_id?: number;
+    is_final?: boolean;
+    priority?: "low" | "normal" | "high";
+    requires_ack?: boolean;
+    ack_for?: string;
+  };
+  payload?: TPayload;
+};
+```
+
+Rules:
+
+- `version` is the DARTC envelope version.
+- `msg_id` SHOULD be UUIDv7. Implementations MAY accept UUIDv4 during early
+  development.
+- `from` and `to` are agent/session identifiers. `to = "*"` means broadcast
+  within the current connection.
+- `topic` controls routing and policy.
+- `timestamp` is Unix epoch milliseconds.
+- `signature` is base64 Ed25519 over the canonical JSON representation of the
+  envelope with `signature` omitted.
+- `payload` is for non-A2A topics or DARTC binding-specific data.
+
+## 4. Canonicalization and Signatures
+
+DARTC signatures cover the entire envelope except the `signature` field.
+
+Implementations MUST:
+
+1. Remove `signature`.
+2. Canonicalize JSON by sorting object keys recursively.
+3. UTF-8 encode the canonical JSON string.
+4. Sign or verify those bytes with Ed25519.
+
+GemmaPod implementation detail:
+
+- Packed pods do not contain the owner private key.
+- Visitor/browser sessions generate an ephemeral session key.
+- The origin daemon may sign responses with an origin session key or an owner key
+  if configured.
+- The signed pod manifest remains the authority for pod identity, system prompt,
+  model preference, transport policy, and tool allow-list.
+
+## 5. Topics
+
+Reserved DARTC topics:
+
+| Topic | Purpose |
+| --- | --- |
+| `dartc.hello` | Session negotiation and topic advertisement |
+| `dartc.ack` | Positive acknowledgement for `requires_ack` messages |
+| `dartc.error` | Protocol or application error |
+| `dartc.ping` | Heartbeat |
+| `dartc.close` | Graceful shutdown |
+
+GemmaPod topics:
+
+| Topic | Purpose |
+| --- | --- |
+| `gemmapod.chat.request` | Chat completion request from widget to origin |
+| `gemmapod.chat.delta` | Streamed text/reasoning delta from origin |
+| `gemmapod.chat.done` | End of chat stream |
+| `gemmapod.ui.event` | Signed UI/runtime event stream for runs, messages, tools, state, activity, and custom UI |
+| `gemmapod.tool.call` | Optional future direct tool-call event |
+| `gemmapod.tool.result` | Optional future direct tool result |
+
+A2A topics:
+
+| Topic | Purpose |
+| --- | --- |
+| `a2a.discovery` | Exchange Agent Cards |
+| `a2a.message` | Send or stream A2A `Message` objects |
+| `a2a.task` | Task state, subscription, cancellation, and artifacts |
+| `a2a.capability` | Capability or extension advertisement |
+
+Application topics may use any non-reserved prefix, such as `orders`,
+`negotiate`, `calendar`, or `support`.
+
+## 6. Session Handshake
+
+After the WebRTC DataChannel opens, both peers SHOULD exchange `dartc.hello`.
+
+```json
+{
+  "version": "0.2",
+  "msg_id": "018f2f42-...",
+  "from": "visitor:session-pubkey",
+  "to": "pod:raj-card:origin",
+  "topic": "dartc.hello",
+  "timestamp": 1747070000000,
+  "dartc": { "requires_ack": true },
+  "payload": {
+    "role": "visitor",
+    "pod_id": "raj-card",
+    "agent_id": "visitor:session-pubkey",
+    "protocol_versions": { "dartc": "0.2", "a2a": "0.2.2" },
+    "supported_topics": ["gemmapod.chat.*", "gemmapod.ui.event", "a2a.discovery", "dartc.*"],
+    "signedManifestB64": "..."
+  },
+  "signature": "..."
+}
+```
+
+The origin daemon MUST verify:
+
+- The DARTC envelope signature.
+- `timestamp` is within the accepted clock skew window.
+- `msg_id` has not been seen before on this session.
+- The signed manifest is valid.
+- The manifest pod id or WebRTC pod id matches the registered origin pod id.
+- The owner pubkey matches `OWNER_PUBKEY` when configured.
+- The requested topics are allowed by local origin policy.
+
+## 7. GemmaPod Chat Binding
+
+`gemmapod.chat.request` payload:
+
+```ts
+type GemmaPodChatRequest = {
+  request_id: string;
+  conversation_id?: string;
+  model?: string;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  signedManifestB64?: string;
+};
+```
+
+`gemmapod.chat.delta` payload:
+
+```ts
+type GemmaPodChatDelta = {
+  request_id: string;
+  delta: string;
+};
+```
+
+`gemmapod.chat.done` payload:
+
+```ts
+type GemmaPodChatDone = {
+  request_id: string;
+};
+```
+
+`dartc.error` payload:
+
+```ts
+type DartcErrorPayload = {
+  code: string;
+  message: string;
+  request_id?: string;
+  fatal?: boolean;
+};
+```
+
+## 8. UI Event Binding
+
+DARTC carries an AG-UI-inspired event stream without replacing DARTC, A2A, or
+MCP.
+
+- DARTC remains the signed topic-routed transport envelope.
+- A2A remains the agent identity and semantic interoperability layer.
+- `gemmapod.ui.event` is the frontend/runtime event binding for practical,
+  user-facing apps.
+
+All UI events are sent as signed DARTC envelopes on topic
+`gemmapod.ui.event`:
+
+```ts
+type DartcUiEventPayload = {
+  schema: "dartc.ui.event/0.1";
+  event: DartcUiEvent;
+};
+```
+
+The wrapping `schema` string is the versioned UI-event contract. Receivers
+MUST treat unknown `schema` values as opaque and either drop the frame or
+surface a `dartc.error`. The `schema` is independent of the DARTC envelope
+`version` so the wire format and the UI event vocabulary can advance
+independently.
+
+The `threadId` field is the logical conversation id. In GemmaPod this is the
+same value as `conversation_id`. The `runId` field is one agent execution,
+usually matching `request_id`. A browser refresh creates a new WebRTC peer, but
+the same `threadId` lets the pod runtime reattach to the conversation.
+
+### Field-name compatibility with AG-UI
+
+DartcUiEvent payload field names match
+[AG-UI](https://docs.ag-ui.com/concepts/events) (`threadId`, `runId`,
+`messageId`, `toolCallId`, `delta`, `snapshot`, …). The discriminator differs:
+DARTC uses SCREAMING_SNAKE_CASE on the `type` field
+(`TEXT_MESSAGE_CONTENT`, `STATE_DELTA`, …); AG-UI uses PascalCase
+(`TextMessageContent`, `StateDelta`, …). The shim ships
+`mapDartcUiEventToAgUi(event)` so CopilotKit-shaped hosts can rewrite the
+discriminator without touching field names. Unknown DARTC types map to
+`Raw`.
+
+### Event classes
+
+Lifecycle events:
+
+```ts
+type RunStarted = {
+  type: "RUN_STARTED";
+  threadId: string;
+  runId: string;
+  parentRunId?: string;
+  input?: unknown;
+  timestamp?: number;
+};
+
+type RunFinished = {
+  type: "RUN_FINISHED";
+  threadId: string;
+  runId: string;
+  timestamp?: number;
+};
+
+type RunError = {
+  type: "RUN_ERROR";
+  threadId: string;
+  runId: string;
+  message: string;
+  code?: string;
+  timestamp?: number;
+};
+```
+
+Text message events use a start-content-end pattern:
+
+```ts
+type TextMessageStart = {
+  type: "TEXT_MESSAGE_START";
+  threadId: string;
+  runId: string;
+  messageId: string;
+  role: "assistant" | "user" | "system" | "tool" | "reasoning";
+  timestamp?: number;
+};
+
+type TextMessageContent = {
+  type: "TEXT_MESSAGE_CONTENT";
+  threadId: string;
+  runId: string;
+  messageId: string;
+  delta: string;
+  timestamp?: number;
+};
+
+type TextMessageEnd = {
+  type: "TEXT_MESSAGE_END";
+  threadId: string;
+  runId: string;
+  messageId: string;
+  timestamp?: number;
+};
+```
+
+Tool-call events make agent action visible to the UI:
+
+```ts
+type ToolCallStart = {
+  type: "TOOL_CALL_START";
+  threadId: string;
+  runId: string;
+  toolCallId: string;
+  toolCallName: string;
+  parentMessageId?: string;
+  timestamp?: number;
+};
+
+type ToolCallArgs = {
+  type: "TOOL_CALL_ARGS";
+  threadId: string;
+  runId: string;
+  toolCallId: string;
+  delta: string;
+  timestamp?: number;
+};
+
+type ToolCallEnd = {
+  type: "TOOL_CALL_END";
+  threadId: string;
+  runId: string;
+  toolCallId: string;
+  timestamp?: number;
+};
+
+type ToolCallResult = {
+  type: "TOOL_CALL_RESULT";
+  threadId: string;
+  runId: string;
+  messageId: string;
+  toolCallId: string;
+  content: string;
+  role?: "tool";
+  timestamp?: number;
+};
+```
+
+State and activity events use a snapshot-delta pattern. Deltas SHOULD use RFC
+6902 JSON Patch operations.
+
+```ts
+type StateSnapshot = {
+  type: "STATE_SNAPSHOT";
+  threadId: string;
+  runId?: string;
+  snapshot: unknown;
+  timestamp?: number;
+};
+
+type StateDelta = {
+  type: "STATE_DELTA";
+  threadId: string;
+  runId?: string;
+  delta: JsonPatchOperation[];
+  timestamp?: number;
+};
+
+type MessagesSnapshot = {
+  type: "MESSAGES_SNAPSHOT";
+  threadId: string;
+  messages: Array<{ id?: string; role: string; content?: string; [key: string]: unknown }>;
+  timestamp?: number;
+};
+
+type ActivitySnapshot = {
+  type: "ACTIVITY_SNAPSHOT";
+  threadId: string;
+  runId?: string;
+  messageId: string;
+  activityType: string;
+  content: unknown;
+  replace?: boolean;
+  timestamp?: number;
+};
+
+type ActivityDelta = {
+  type: "ACTIVITY_DELTA";
+  threadId: string;
+  runId?: string;
+  messageId: string;
+  activityType: string;
+  patch: JsonPatchOperation[];
+  timestamp?: number;
+};
+```
+
+`MESSAGES_SNAPSHOT` lets the origin rehydrate the full visible transcript on
+reconnect (e.g. when the browser starts a fresh DARTC session for an existing
+`threadId`). Receivers should treat it as authoritative for the chat history
+and ignore any prior local-only history not present in the snapshot.
+
+Custom events allow app-specific UI actions without minting a new reserved
+topic:
+
+```ts
+type CustomEvent = {
+  type: "CUSTOM";
+  threadId: string;
+  runId?: string;
+  name: string;
+  value?: unknown;
+  timestamp?: number;
+};
+
+type RawEvent = {
+  type: "RAW";
+  threadId?: string;
+  runId?: string;
+  event: unknown;
+  timestamp?: number;
+};
+```
+
+`RAW` is the escape hatch for protocol-level events that don't fit the
+typed catalogue (debug frames, vendor-specific telemetry, transport-layer
+diagnostics). It MUST NOT carry chat content. Receivers SHOULD only act on
+`RAW` when their host has explicit knowledge of the contained shape.
+
+Examples:
+
+- Restaurant pod: `STATE_SNAPSHOT` for the cart, `STATE_DELTA` when an item is
+  added, `CUSTOM name="checkout.requested"` when payment approval is needed.
+- Negotiation pod: `ACTIVITY_SNAPSHOT activityType="OFFER"` for the current
+  offer, `STATE_DELTA` for counterparty terms, `CUSTOM name="approval.required"`.
+- Support pod: `TOOL_CALL_*` to show CRM lookup progress, then
+  `TEXT_MESSAGE_*` to stream the answer.
+- gemmapod.com hero: `CUSTOM name="companion.react"` / `presentation.show` to
+  drive the 3D companion + slide alongside chat without inventing a new topic.
+
+### Runtime ingestion (browser shim)
+
+The browser `GemmaPodRuntime` (`packages/shim/src/runtime/`) consumes UI
+events the same way regardless of transport (WebRTC + origin **or** WebGPU
+fallback):
+
+| Event | Effect on the runtime |
+| --- | --- |
+| `STATE_SNAPSHOT` | `runtime.state.replace(snapshot)` |
+| `STATE_DELTA` | `runtime.state.apply(delta)` (RFC 6902 add/replace/remove) |
+| `MESSAGES_SNAPSHOT` | `runtime.chat.setHistory(messages)` (and emits `chat.history` on the bus) |
+| `CUSTOM name="a2a.card"` | populate `runtime.a2a.card` and emit `a2a.card` on the bus |
+| any | re-emit as `runtime.events` `ui.event` |
+
+Hosts can additionally call `GemmaPod.mapDartcUiEventToAgUi(event)` to
+convert the SCREAMING_SNAKE discriminator into AG-UI PascalCase for
+CopilotKit-shaped UIs (see §8 field-name compatibility).
+
+## 9. A2A Binding
+
+For topics beginning with `a2a.`, the `a2a` field carries the A2A object or
+operation payload. The DARTC envelope provides delivery metadata only.
+
+Example Agent Card exchange:
+
+```json
+{
+  "version": "0.2",
+  "topic": "a2a.discovery",
+  "from": "pod:raj-card:origin",
+  "to": "visitor:session-pubkey",
+  "a2a": {
+    "kind": "AgentCard",
+    "card": {
+      "name": "Raj Card",
+      "description": "A portable AI business card.",
+      "capabilities": { "streaming": true },
+      "skills": []
+    }
+  },
+  "dartc": { "stream": false },
+  "payload": {
+    "binding": "dartc",
+    "topics": ["a2a.discovery", "a2a.message", "a2a.task"]
+  },
+  "signature": "..."
+}
+```
+
+## 10. Backpressure and Chunking
+
+v0.2 uses ordered reliable WebRTC DataChannels by default.
+
+Implementations SHOULD:
+
+- Keep individual JSON frames below 64 KiB.
+- Use `chunk_id` for ordered stream chunks.
+- Set `is_final` only for DARTC stream completion metadata. A2A task completion
+  still follows A2A task state semantics.
+- Use `requires_ack` for high-value control messages, not for every text delta.
+
+## 11. Relay Fallback
+
+DARTC is transport-neutral above the envelope. When WebRTC cannot connect,
+GemmaPod Cloud MAY relay the same signed envelopes over WebSocket.
+
+Relay servers MUST NOT need to decrypt or mutate DARTC payloads. They MAY route
+by `to`, `topic`, and pod/session metadata.
+
+## 12. Implementation Status
+
+Shipped:
+
+1. Shared `@gemmapod/dartc` package: envelope types, canonicalization, signing
+   adapters, topic helpers, ack/error helpers, UI-event types, A2A discovery
+   payloads, tests.
+2. Generic byte signing/verification exports in `gemmapod-core` (`pkg/` for
+   web, `pkg-node/` for node).
+3. Browser shim signs `dartc.hello`, `gemmapod.chat.request`, and visible
+   UI events; verifies origin frames; routes `STATE_*` / `MESSAGES_SNAPSHOT`
+   into the runtime state store and chat history.
+4. Origin daemon (`@gemmapod/origin`) speaks DARTC v0.2 only on the data
+   channel: verifies the visitor's signed `dartc.hello` + signed manifest,
+   advertises an A2A-shaped Agent Card on `a2a.discovery`, streams signed
+   `gemmapod.chat.delta` / `done`, and emits signed `gemmapod.ui.event`
+   envelopes.
+5. A2A Agent Card derived from the signed pod manifest (pod name, persona,
+   signed tools as skills, DARTC binding metadata).
+6. AG-UI compatibility helper (`mapDartcUiEventToAgUi`) shipped on the
+   browser shim global.
+
+Planned:
+
+- WebSocket relay fallback using the same DARTC envelope for hostile-NAT
+  cases.
+- Topic-level encryption (sender keys vs. shared session keys vs. an
+  MLS-style group protocol — open question in §13).
+- Optional CBOR framing once JSON v0.2 stabilises.
+
+## 13. Open Questions
+
+- Should DARTC standardize CBOR framing after JSON v0.2 is stable?
+- Should topic-level encryption use sender keys, shared session keys, or an MLS
+  style group protocol?
+- Should Agent Cards declare DARTC as an A2A extension or a formal protocol
+  binding?
+- What should the minimum replay cache window be for browser-origin sessions?

@@ -1,0 +1,63 @@
+{
+  "name": "@gemmapod/origin",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Owner-side daemon for GemmaPod. Connects outbound WSS to a signaling broker, opens a WebRTC DataChannel per visitor, speaks DARTC v0.2, verifies the signed pod manifest, and proxies chat to a local Ollama (or any OpenAI-compatible) endpoint with persistent SQLite conversation memory.",
+  "keywords": [
+    "gemmapod",
+    "ai-agent",
+    "webrtc",
+    "dartc",
+    "ollama",
+    "ed25519",
+    "owner-daemon",
+    "a2a"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/origin"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./dist/daemon.js",
+  "bin": {
+    "gemmapod-origin": "./dist/daemon.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/daemon.ts",
+    "start": "tsx src/daemon.ts",
+    "build": "tsc -p . && chmod +x dist/daemon.js",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@gemmapod/core": "workspace:*",
+    "@gemmapod/dartc": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "enquirer": "^2.4.1",
+    "hono": "^4.6.14",
+    "node-datachannel": "^0.27.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

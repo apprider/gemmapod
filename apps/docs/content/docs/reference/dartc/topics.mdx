@@ -1,0 +1,92 @@
+---
+title: Topics
+description: Reserved prefixes and the canonical GemmaPod topic catalogue.
+---
+
+DARTC routing is topic-based. Three reserved prefixes; everything else
+is application-defined.
+
+## Reserved DARTC control topics
+
+| Topic              | Purpose                                                       |
+| ------------------ | ------------------------------------------------------------- |
+| `dartc.hello`      | Session negotiation + topic advertisement.                    |
+| `dartc.ack`        | Positive acknowledgement for `requires_ack` messages.         |
+| `dartc.error`      | Protocol or application error.                                |
+| `dartc.ping`       | Heartbeat.                                                    |
+| `dartc.close`      | Graceful shutdown.                                            |
+
+`dartc.*` topics use the `payload` field for their data (not `a2a`).
+
+## A2A topics
+
+| Topic                | Purpose                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `a2a.discovery`      | Exchange Agent Cards.                                         |
+| `a2a.message`        | Send or stream A2A `Message` objects.                         |
+| `a2a.task`           | Task state, subscription, cancellation, and artifacts.        |
+| `a2a.capability`     | Capability or extension advertisement.                        |
+
+`a2a.*` topics MUST carry A2A-shaped objects in the `a2a` field.
+
+## GemmaPod topics
+
+| Topic                          | Purpose                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `gemmapod.chat.request`        | Chat completion request from widget to origin.                                                   |
+| `gemmapod.chat.delta`          | Streamed text/reasoning delta from origin.                                                       |
+| `gemmapod.chat.done`           | End of chat stream.                                                                              |
+| `gemmapod.ui.event`            | Signed UI/runtime event stream for runs, messages, tool calls, state, activity, custom events.   |
+| `gemmapod.tool.call`           | Optional direct tool-call event (future).                                                        |
+| `gemmapod.tool.result`         | Optional direct tool result (future).                                                            |
+
+## Topic matching helper
+
+```ts
+import { topicMatches } from "@gemmapod/dartc";
+
+topicMatches("gemmapod.chat.*", "gemmapod.chat.request"); // true
+topicMatches("dartc.*", "gemmapod.chat.request"); // false
+topicMatches("*", anything); // true
+```
+
+`*` matches everything. `prefix.*` matches anything starting with
+`prefix.` (one dot).
+
+## Application topics
+
+Any non-reserved prefix is fair game:
+
+```text
+orders.created
+negotiate.offer
+calendar.bookings.requested
+support.ticket.updated
+```
+
+The runtime doesn't pre-define semantics for application topics — your
+host code subscribes to them via custom code on the underlying
+`Transport` instance, or wraps the data in `gemmapod.ui.event` `CUSTOM`
+events for a UI-centric stream.
+
+## Session handshake (`dartc.hello`)
+
+After the WebRTC data channel opens, both peers send a signed
+`dartc.hello` envelope. The origin verifies:
+
+- envelope signature
+- timestamp within accepted skew
+- `msg_id` not seen on this session
+- signed manifest is valid
+- manifest pod id matches the registered pod id
+- owner pubkey matches `OWNER_PUBKEY` when configured
+- requested topics are allowed by local origin policy
+
+See [DARTC spec §6](/docs/protocol/dartc-spec) for the full payload
+shape.
+
+## See also
+
+- [DARTC envelope](/docs/reference/dartc/envelope)
+- [UI events catalogue](/docs/reference/dartc/ui-events)
+- [A2A interop](/docs/reference/dartc/a2a)

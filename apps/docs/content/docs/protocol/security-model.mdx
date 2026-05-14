@@ -1,0 +1,107 @@
+---
+title: Security model
+description: Threat model, defense layers per component, and the vulnerability reporting flow.
+---
+
+## Threat model
+
+| # | Attacker capability                                                                | Mitigated?                                                                 |
+|---|-------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| 1 | Tampers with the pod blob in transit (mail server, MITM, mirror site).             | **Yes.** Ed25519 over the manifest body. Verification happens in `boot.ts` before any UI renders. A bad signature surfaces a visible `gemmapod refused to mount` error instead of a degraded persona. |
+| 2 | Re-hosts the blob on a different domain.                                           | **Yes** as for #1 — re-hosting cannot tamper with content without breaking the signature.                                                                |
+| 3 | XSS into a `gemmapod.com/<id>` served pod.                                         | **Mitigated** by a strict CSP on the served blob (see below). `'unsafe-inline'` is unavoidable because the pod boot script and the WASM are inlined into the HTML, but `script-src` is otherwise locked down; `connect-src` is restricted to WebRTC + the explicit fallback CDN allow-list. |
+| 4 | XSS into gemmapod.com itself (`/`, `/build`, `/deploy`).                            | **Mitigated** by the production CSP on the Next.js site (configured in `apps/web/next.config.mjs`).                                                       |
+| 5 | Hostile page embeds a pod and tries to scrape conversation contents from the host. | **Partial.** A page can read `window.GemmaPod` and the chat DOM. Embedders accept this risk explicitly. A future hardening (D12 backlog) is an iframe-sandbox option on `mount`. |
+| 6 | Hostile page deceives a visitor into typing into a pod that looks like another agent. | **Out of scope** (UI-level phishing). Same defenses as any embeddable widget; visitors should trust the host first. |
+| 7 | Attacker uploads a pod blob signed with their own key.                              | **Allowed by design** — anyone can create a pod. The signed manifest commits the *owner's* identity, not gemmapod.com's. Visitors trust pods by trusting the owner's pubkey, the same way they trust an email by trusting the sender. |
+| 8 | Attacker uploads a malformed blob to `/pods` to crash the cloud.                    | **Mitigated.** The cloud verifies the inlined manifest *before* writing anything to Cloud Storage or Firestore. Oversized (>50 MB) blobs are rejected at the edge. |
+| 9 | Attacker spams `/pods` to exhaust storage.                                          | **Open.** No rate limit yet (D12 backlog). App Hosting per-IP throttling is the current ceiling. |
+| 10 | Owner's secret key is stolen.                                                       | **Out of scope** — they can sign arbitrary pods. Rotation = sign new pods, deploy with a new id. No revocation mechanism today. |
+| 11 | Owner's origin daemon is breached, attacker proxies arbitrary content through the data channel. | **Out of scope** — the owner trusts their own machine. Tool calls are constrained by the signed manifest allow-list plus the daemon's local registry, but a breached origin can still lie about its own outputs.    |
+
+## Defense layers, by component
+
+### `packages/core` — Ed25519 + CBOR
+- Same Rust code path on every side. The browser, the pack CLI, and the
+  cloud all call `verifyManifest`; the WASM is built once for the web
+  target and once for Node.
+- Signature covers the exact CBOR bytes the signer produced (preserved
+  verbatim in the envelope), so different CBOR encoders can't desync.
+
+### `packages/shim` — boot-time gate
+- `boot.ts` fails closed on:
+  - missing `__GEMMAPOD_WASM_B64`
+  - missing `__GEMMAPOD_MANIFEST_B64`
+  - WASM init failure
+  - signature verify failure
+- On any failure the host element receives only a visible red error box
+  — no fragment of the manifest, persona, or system prompt leaks into
+  the DOM.
+
+### `packages/origin` — owner daemon
+- No HTTP server exposed to the public internet — only outbound WSS.
+- Single Ollama URL configured via env, hard-coded into the proxy. Pods
+  can't ask it to talk to arbitrary backends.
+- Tool execution is deny-by-default. The packed pod sends its signed
+  manifest with each WebRTC request; the origin verifies the signature,
+  checks the registered pod id (and optional `OWNER_PUBKEY`), and exposes
+  only tools that are both in the signed manifest and implemented in the
+  local registry.
+
+### `apps/cloud` — registry + signaling
+- All writes go through Admin SDK; Firestore + Storage security rules
+  deny direct client access entirely.
+- `POST /pods` verifies the manifest signature **before** any storage
+  write. Malformed or unsigned blobs never touch GCS / Firestore.
+- `/health`, `/:id`, `/:id/meta` use a 12-char `[A-Za-z0-9_-]` slug
+  pattern in the route — non-matching paths return 404 without reaching
+  Firestore.
+- All `/:id` responses carry:
+  ```
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; …
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), …
+  ```
+
+### `apps/web` — gemmapod.com
+- Production builds emit a strict CSP from `next.config.mjs` headers().
+- Same `Permissions-Policy` + `Referrer-Policy` + `nosniff` headers.
+- `/build` signs entirely in the browser; the secret key is never POSTed
+  anywhere.
+
+## Reporting a vulnerability
+
+Use **[GitHub's private security advisory flow](https://github.com/apprider/gemmapod/security/advisories/new)**
+for the public SDK packages (`@gemmapod/dartc`, `@gemmapod/core`,
+`@gemmapod/shim`, `@gemmapod/browser`, `@gemmapod/pack`, `@gemmapod/origin`,
+`@gemmapod/cloud`). It's encrypted, gives us a private collaboration space,
+and integrates with GitHub's CVE workflow.
+
+If you can't use that flow, email **raj.design@gmail.com** with subject
+prefix `[gemmapod-sec]`.
+
+**Please don't open a public issue for unfixed vulnerabilities.**
+
+We aim to acknowledge within 72 hours and provide a triage update within
+seven days. Fix timelines depend on severity and affected packages.
+
+### What we ask of researchers
+
+- Reproduce against the **latest** published version of each affected
+  package. Pre-release / snapshot builds are out of scope.
+- For findings against the live cloud at gemmapod.com, please keep test
+  blob uploads modest — there's no per-IP rate limit yet (see #9 above).
+- Don't pivot from one finding into invasive testing of the cloud or its
+  storage. Report the original finding first.
+
+### Coordinated disclosure
+
+When a fix is ready, we'll:
+
+1. Publish patched npm versions with sigstore provenance.
+2. Open a GitHub Security Advisory crediting the reporter (unless they
+   prefer anonymity).
+3. If the issue affects the wire format or signed manifest, document the
+   upgrade path in the release notes and in [`runtime.md`](./runtime.md) /
+   [`dartc.md`](./dartc.md).

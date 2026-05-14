@@ -1,0 +1,64 @@
+---
+title: Send a pod by email
+description: Attach the .html, send, open. Three caveats worth knowing.
+---
+
+A packed pod is a regular `.html` attachment. Most email clients open
+HTML attachments either inline (Gmail with "View raw" / "Open in new
+tab") or via "Download → open in browser" — both work.
+
+## The flow
+
+1. Build the pod:
+
+   ```sh
+   gemmapod build pod.toml --key owner.key --out my-agent.html
+   ```
+
+2. Attach the `.html` to a new email. Modern Gmail / Outlook / Apple Mail
+   accept the attachment fine; some corporate filters strip `.html`
+   attachments, in which case wrap it in a `.zip` or host it on
+   [`gemmapod.com/<id>`](/docs/guides/deploy-to-cloud).
+
+3. Recipient opens the attachment. The browser runs `GemmaPod.boot()`,
+   verifies the signed manifest, and starts chatting.
+
+## Caveats
+
+### `file://` doesn't reach localhost broker
+
+If your manifest's `signalUrl` is `ws://localhost:8080/signal` and the
+recipient opens the attachment from disk, the WebRTC handshake fails —
+there's no broker on the recipient's localhost. The pod will fall back
+to the in-browser WebGPU path **only if** `transport.fallback` is
+configured in the manifest. Otherwise the pod sits unable to connect.
+
+For pods you actually intend to send by email, use a public signaling
+URL: either `wss://cloud.gemmapod.com/signal` or your own self-hosted
+broker.
+
+### Gmail and inline preview
+
+Gmail strips JavaScript from inline HTML previews. Recipients need to
+**download the attachment** and open it locally (or click "View" /
+"Download" depending on the client). This is correct behaviour from
+Gmail's side; the pod refuses to render anyway if Gmail somehow
+loaded it inline without scripts.
+
+### Corporate proxy MITM
+
+Some corporate proxies rewrite HTML attachments to inject tracking
+banners. If they do, the signed manifest still verifies (it lives in
+the inlined base64 `__GEMMAPOD_MANIFEST_B64` and the signature covers
+its own bytes, not the surrounding HTML). But the page might display a
+proxy warning above the pod widget. Not a security failure — just an
+aesthetic note.
+
+If the proxy strips inlined scripts entirely, the pod won't boot, and
+the page will show its plain HTML fallback (a static header element).
+
+## See also
+
+- [Build your first pod with the CLI](/docs/quickstart/first-pod-cli)
+- [Deploy to a stable URL instead](/docs/guides/deploy-to-cloud)
+- [Security model — re-hosting and tampering](/docs/protocol/security-model)

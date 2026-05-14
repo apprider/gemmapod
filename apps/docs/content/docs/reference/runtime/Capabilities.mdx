@@ -1,0 +1,81 @@
+---
+title: Capabilities
+description: A small string registry today, with risk-tier capability negotiation planned.
+---
+
+## Type
+
+```ts
+interface RuntimeCapabilityRegistry {
+  has(name: string): boolean;
+  list(): string[];
+  grant(name: string): void;
+  revoke(name: string): void;
+}
+```
+
+## What's shipped in v0.1
+
+Default grants:
+
+| Capability                     | Full shim | Runtime-only shim | Why                                      |
+| ------------------------------ | --------- | ----------------- | ---------------------------------------- |
+| `ui.render`                    | ✅        | ❌                 | Only the full shim ships the Preact widget. |
+| `storage.local`                | ✅        | ✅                 | `localStorage` is available.             |
+| `transport.webrtc`             | ✅        | ✅                 | WebRTC DataChannel transport available.  |
+| `transport.direct`             | ✅        | ✅                 | HTTP transport available.                |
+| `transport.browser-fallback`   | ✅        | ✅                 | WebGPU + transformers.js available (subject to `navigator.gpu`). |
+
+The registry is a **string set**. Today the runtime only checks `has`
+internally for `ui.render` (whether to mount the Preact widget). Other
+capabilities are declared so hosts can introspect what the runtime
+believes is available.
+
+## Inspecting from your host
+
+```ts
+runtime.capabilities.list();
+// ["storage.local", "transport.browser-fallback", "transport.direct", "transport.webrtc", "ui.render"]
+
+runtime.capabilities.has("transport.browser-fallback");
+// true (if navigator.gpu was detected)
+```
+
+## What's planned
+
+A richer `request<T>(name, input?)` flow that:
+
+1. Lets pods declare required capabilities in `pod.toml`:
+
+   ```toml
+   [[capabilities]]
+   name = "payment.intent"
+   required = false
+   risk = "high"
+   ```
+
+2. Lets hosts approve or deny per-capability requests at runtime.
+3. Carries the approval state through DARTC `gemmapod.ui.event`
+   `CUSTOM` events so the model knows what's been granted.
+
+Planned capability families:
+
+| Capability             | Purpose                                         |
+| ---------------------- | ----------------------------------------------- |
+| `ui.prompt`            | Ask the user for approval / input.              |
+| `network.fetch`        | Host-approved HTTP requests.                    |
+| `file.open` / `file.save` | User-approved file I/O.                      |
+| `clipboard.write`      | Copy generated output.                          |
+| `payment.intent`       | Checkout / payment hand-off.                    |
+| `calendar.intent`      | Booking / scheduling hand-off.                  |
+| `notification.show`    | User-visible alerts.                            |
+| `model.local`          | Local model execution.                          |
+
+These will roll in over post-v0.1 minor versions. The string-set surface
+won't change — capability declarations and `request<T>` will be
+additive.
+
+## See also
+
+- [Runtime spec — capabilities](/docs/protocol/runtime-spec)
+- [Security model — capability boundaries](/docs/protocol/security-model)

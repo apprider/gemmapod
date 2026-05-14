@@ -1,0 +1,86 @@
+---
+title: pod.toml
+description: The author-facing pod manifest. TOML in, signed CBOR out.
+---
+
+`pod.toml` is the source file the `gemmapod build` CLI reads to produce
+a signed `.html` pod. Every field listed here becomes part of the
+signed CBOR manifest — tampering with any of them after build breaks
+the signature and the browser refuses to mount.
+
+## Full schema
+
+```toml
+name = "my-pod"                  # required
+persona = "AI business card"     # required
+model = "gemma4:e4b"             # required — model name the pod requests
+
+system_prompt = """              # required
+You are…
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]   # advisory in v0.1; selector uses fixed order
+
+[transport.webrtc]
+signal_url = "wss://cloud.gemmapod.com/signal"
+pod_id = "my-pod"                # must match POD_ID on your origin daemon
+
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"
+
+# Optional list of fallback model variants the visitor can pick between
+[[transport.fallback.models]]
+id = "onnx-community/gemma-4-E2B-it-ONNX"
+label = "Gemma 4 E2B"
+sizeMB = 3000
+
+[[transport.fallback.models]]
+id = "onnx-community/gemma-4-E4B-it-ONNX"
+label = "Gemma 4 E4B"
+sizeMB = 3900
+
+# Optional direct HTTP transport (dev convenience)
+[transport.direct]
+base_url = "http://localhost:11434"
+
+[[tools]]
+name = "share_contact"
+description = "Share Raj's public contact details."
+
+[[tools]]
+name = "open_ticket"
+description = "Open a helpdesk ticket."
+```
+
+## Required vs. optional
+
+| Field                                | Required | Notes                                                        |
+| ------------------------------------ | -------- | ------------------------------------------------------------ |
+| `name`                               | ✅        | Also the default `pod_id` if `[transport.webrtc].pod_id` is missing. |
+| `persona`                            | ✅        | One-line description used in A2A Agent Card.                 |
+| `system_prompt`                      | ✅        | Becomes the model's system message at runtime.               |
+| `model`                              | ✅        | Model name passed to the OpenAI-compat endpoint.             |
+| `[transport]` block + at least one subblock | ✅ | At least one of `webrtc`, `fallback`, `direct` must be set. |
+| `[[tools]]` entries                  | ❌        | Each one allows the model to call a tool by that name (if the origin implements it). |
+
+## `owner_pubkey` is auto-filled
+
+You **don't** write `owner_pubkey` in `pod.toml`. The CLI reads it from
+the `publicKey` field of the `--key` file you pass to `gemmapod build`
+and fills it into the manifest before signing. This guarantees the
+manifest's claimed owner is always the actual signer.
+
+## What gets signed
+
+The CBOR-encoded manifest body — every field above plus the auto-filled
+`owner_pubkey` and a schema version. The Ed25519 signature covers the
+CBOR bytes verbatim, so different CBOR encoders can't desync between
+signer and verifier.
+
+## See also
+
+- [`gemmapod build`](/docs/reference/cli/build)
+- [Signed manifest](/docs/reference/pod-manifest/signed-manifest)
+- [Add a tool guide](/docs/guides/add-a-tool)
+- [hello-pod example](https://github.com/apprider/gemmapod/tree/main/examples/hello-pod)

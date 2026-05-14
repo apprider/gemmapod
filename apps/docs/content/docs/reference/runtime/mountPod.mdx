@@ -1,0 +1,102 @@
+---
+title: mountPod
+description: One-call embed for the chat widget + (optional) fallback panel.
+---
+
+## Signature
+
+```ts
+function mountPod(
+  el: HTMLElement | null,
+  config: PodConfig,
+  options?: MountPodOptions,
+): Promise<MountedPod>;
+
+interface MountPodOptions {
+  ui?: "chat" | "none";                       // default: "chat"
+  fallbackUi?: "default" | "none" | HTMLElement; // default: "default" if config.transport.fallback set
+  fallbackPlacement?: "before" | "after" | "prepend"; // default: "before"
+  fallbackMountParent?: HTMLElement;
+}
+
+interface MountedPod {
+  readonly runtime: GemmaPodRuntime;
+  destroy(): Promise<void>;
+}
+```
+
+## Behaviour
+
+- **`ui: "chat"` (default)** — mount the Preact chat widget into `el`.
+  `el` is required.
+- **`ui: "none"`** — headless. `el` may be `null`. The host renders its
+  own UI by subscribing to `runtime.events` and calling
+  `runtime.chat.stream` / `send`.
+- **`fallbackUi: "default"`** — auto-build a fallback prepare panel via
+  `attachBrowserFallbackPrepare`. The panel is placed:
+  - relative to `el` according to `fallbackPlacement` when chat UI is
+    mounted
+  - under `fallbackMountParent` (default: `document.body`) when
+    headless
+- **`fallbackUi: HTMLElement`** — use this DOM node as the fallback host
+  directly. No auto-placement.
+- **`fallbackUi: "none"`** — no fallback panel. Host wires its own UX or
+  configures no fallback at all.
+- **`fallbackUi` defaulting** — when omitted, defaults to `"default"`
+  if `config.transport.fallback` is set, `"none"` otherwise.
+
+## Examples
+
+### One-line embed
+
+```ts
+const { runtime, destroy } = await GemmaPod.mountPod(el, config);
+window.addEventListener("pagehide", () => destroy());
+```
+
+### Headless React shell
+
+```ts
+const fallbackHostRef = useRef<HTMLDivElement | null>(null);
+
+const { runtime } = await GemmaPod.mountPod(null, config, {
+  ui: "none",
+  fallbackUi: "default",
+  fallbackMountParent: fallbackHostRef.current ?? undefined,
+});
+```
+
+### Bring-your-own fallback DOM node
+
+```ts
+const fallbackHost = document.querySelector("#my-fallback-panel")!;
+const { runtime } = await GemmaPod.mountPod(el, config, {
+  fallbackUi: fallbackHost,
+});
+```
+
+### Completely headless
+
+```ts
+const { runtime } = await GemmaPod.mountPod(null, config, {
+  ui: "none",
+  fallbackUi: "none",
+});
+// You render every visible UI affordance — including any prepare UX.
+```
+
+## When to use `mount` vs. `create` vs. `mountPod`
+
+- **`mountPod`** — recommended. Default for packed pods and most
+  embedders. Handles chat + fallback in one call.
+- **`mount(el, config)`** — lower-level: returns the runtime, mounts
+  the Preact widget, but does **not** auto-build the fallback panel.
+  Useful when you want a chat widget plus your own fallback UI.
+- **`create(config)`** — purely programmatic. Returns the runtime with
+  no UI mounted at all. First `chat.send`/`stream` auto-connects.
+
+## See also
+
+- [`GemmaPodRuntime`](/docs/reference/runtime/GemmaPodRuntime)
+- [Headless mode guide](/docs/guides/headless-mode)
+- [In-browser fallback guide](/docs/guides/in-browser-fallback)

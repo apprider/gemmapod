@@ -1,0 +1,19 @@
+{
+  "name": "@gemmapod/example-restaurant-pod",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny origin daemon that streams STATE_SNAPSHOT cart updates over DARTC. The visitor's page renders the cart beside the chat without minting a new topic.",
+  "scripts": {
+    "dev": "tsx src/origin.ts",
+    "start": "tsx src/origin.ts"
+  },
+  "dependencies": {
+    "@gemmapod/dartc": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

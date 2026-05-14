@@ -1,0 +1,112 @@
+---
+title: Envelope
+description: The signed JSON frame every DARTC peer exchanges.
+---
+
+## Shape
+
+```ts
+interface DartcEnvelope<TPayload = unknown, TA2A = unknown> {
+  version: "0.2";
+  msg_id: string;       // UUIDv7 preferred (UUIDv4 accepted during early development)
+  from: string;
+  to: string;
+  topic: string;
+  timestamp: number;    // Unix epoch ms
+  signature: string;    // base64(Ed25519(canonicalJson(envelope without signature)))
+  a2a?: TA2A;           // A2A semantic payload (Agent Card, Message, Task, …)
+  dartc?: DartcMetadata; // transport metadata (stream / chunk_id / requires_ack / …)
+  payload?: TPayload;   // app-specific data
+}
+
+interface DartcMetadata {
+  stream?: boolean;
+  chunk_id?: number;
+  is_final?: boolean;
+  priority?: "low" | "normal" | "high";
+  requires_ack?: boolean;
+  ack_for?: string;
+}
+```
+
+## Canonicalisation + signature
+
+```text
+1. Remove `signature`.
+2. Canonicalize JSON by sorting object keys recursively.
+3. UTF-8 encode the canonical JSON.
+4. Sign or verify those bytes with Ed25519.
+```
+
+The signing bytes are exactly what `@gemmapod/dartc#signingBytes(envelope)`
+returns. The signature itself is base64-encoded raw Ed25519 (64 bytes
+decoded).
+
+## Identity rules
+
+- `from` / `to` are agent or session identifiers. Format is opaque to
+  DARTC — typically `pod:<pod-id>:<role>` or `visitor:<session-pubkey>`.
+- `to: "*"` means broadcast within the current connection.
+- `topic` controls routing and policy. Reserved prefixes:
+  - `dartc.*` — session control (`hello`, `ack`, `error`, `ping`, `close`)
+  - `a2a.*` — A2A-shaped semantic interop
+  - `gemmapod.*` — chat + UI events for this SDK
+- Application-specific topics can use any non-reserved prefix
+  (`orders`, `negotiate`, `support`, etc.).
+
+## Helpers
+
+`@gemmapod/dartc` ships pure helpers for every step. Builders accept
+the fields and assemble an `UnsignedDartcEnvelope`; sign/verify go
+through a `DartcSigner` / `DartcVerifier` you supply.
+
+```ts
+import {
+  createEnvelope,
+  signEnvelope,
+  verifyEnvelope,
+  parseEnvelope,
+  canonicalJson,
+  signingBytes,
+} from "@gemmapod/dartc";
+
+const envelope = await signEnvelope(
+  createEnvelope({
+    from: "visitor:session-pubkey",
+    to: "pod:hello-pod:origin",
+    topic: "gemmapod.chat.request",
+    payload: { request_id: "req_1", messages: [{ role: "user", content: "Hello" }] },
+  }),
+  async (bytes) => signWithSessionKey(bytes), // your signer
+);
+
+const ok = await verifyEnvelope(envelope, async (bytes, sig) =>
+  await verifyWithSenderPubkey(bytes, sig),
+);
+```
+
+## Size + chunking
+
+- Keep individual frames below **64 KiB**.
+- Use `dartc.chunk_id` for ordered stream chunks.
+- Set `dartc.is_final` only for DARTC stream completion metadata. A2A
+  task completion still follows A2A task state semantics.
+- Use `dartc.requires_ack` for high-value control messages — not for
+  every text delta.
+
+## Replay defence
+
+The recipient SHOULD drop frames where:
+
+- `timestamp` is outside an acceptable clock skew window
+- `msg_id` has been seen on this session
+
+The reference origin daemon uses a sliding window of recent `msg_id`s
+per session.
+
+## See also
+
+- [Topics](/docs/reference/dartc/topics)
+- [UI events](/docs/reference/dartc/ui-events)
+- [DARTC spec](/docs/protocol/dartc-spec)
+- [`@gemmapod/dartc` README](https://github.com/apprider/gemmapod/blob/main/packages/dartc/README.md)

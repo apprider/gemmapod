@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GemmaPod — script-tag embed</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0d1117;
+        --fg: #e8e8ec;
+        --muted: #7d8590;
+        --accent: #58a6ff;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 48px 16px;
+        gap: 24px;
+      }
+      header {
+        max-width: 640px;
+        text-align: center;
+      }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      p.lead { color: var(--muted); margin: 0; }
+      #pod {
+        width: 100%;
+        max-width: 640px;
+        min-height: 480px;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        background: #161b22;
+        padding: 12px;
+      }
+      code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
+      footer { color: var(--muted); font-size: 13px; max-width: 640px; text-align: center; }
+      footer a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>GemmaPod — script-tag embed</h1>
+      <p class="lead">
+        One <code>&lt;script&gt;</code> tag. One <code>&lt;div&gt;</code>. The
+        rest happens in the browser.
+      </p>
+    </header>
+
+    <div id="pod"></div>
+
+    <footer>
+      Set <code>signalUrl</code> and <code>podId</code> below to match a
+      running origin daemon, or leave them as-is to let the in-browser
+      <a href="https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX">Gemma 4 E2B</a>
+      fallback handle the conversation.
+    </footer>
+
+    <!-- Production: pin a version and add an integrity hash. See
+         https://github.com/apprider/gemmapod/tree/main/packages/browser -->
+    <script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
+    <script>
+      GemmaPod.mountPod(document.getElementById("pod"), {
+        name: "Demo",
+        persona: "Helpful product explainer.",
+        systemPrompt: "You are concise and friendly. Demo of a pod embedded via a script tag.",
+        model: "gemma4:e4b",
+        transport: {
+          webrtc: {
+            signalUrl: "wss://cloud.gemmapod.com/signal",
+            podId: "demo-pod",
+          },
+          fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+        },
+      }).then(function (mounted) {
+        // Optional: observe runtime events.
+        mounted.runtime.events.on("transport.ready", function (e) {
+          console.log("[gemmapod] transport.ready:", e.transport);
+        });
+        mounted.runtime.events.on("transport.fallback", function (e) {
+          console.warn("[gemmapod] fell back:", e.reason);
+        });
+        // Tidy up if the page navigates away.
+        window.addEventListener("pagehide", function () {
+          mounted.destroy();
+        });
+      });
+    </script>
+  </body>
+</html>

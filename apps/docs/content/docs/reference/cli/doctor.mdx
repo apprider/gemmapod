@@ -1,0 +1,52 @@
+---
+title: gemmapod doctor
+description: Validate pod.toml without building. Catches misconfigured transports + missing fields.
+---
+
+## Synopsis
+
+```sh
+gemmapod doctor <pod.toml>
+```
+
+## Description
+
+Parses `pod.toml` and runs the same validation the `build` command runs
+before signing. Useful in CI to gate manifests before a deploy.
+
+Reports:
+
+- missing required fields (`name`, `system_prompt`, `model`)
+- transport block consistency (`[transport.webrtc]` requires both
+  `signal_url` and `pod_id`; `[transport.fallback]` requires `model`)
+- the resolved transport order
+
+Does **not** sign or write any artefacts. Does not touch the network.
+
+## Exit codes
+
+| Code | Meaning                                              |
+| ---- | ---------------------------------------------------- |
+| `0`  | Manifest looks fine.                                  |
+| `1`  | Validation failure. Stderr explains what's wrong.    |
+
+## Example
+
+```sh
+gemmapod doctor pod.toml
+# pod.toml looks fine
+#   transport preferred: webrtc → fallback
+```
+
+A failure looks like:
+
+```sh
+gemmapod doctor pod.toml
+# [doctor] missing required field: system_prompt
+# [doctor] transport.webrtc is configured but signal_url is empty
+```
+
+## See also
+
+- [`gemmapod build`](/docs/reference/cli/build)
+- [`pod.toml` reference](/docs/reference/pod-manifest/pod-toml)

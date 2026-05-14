@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GemmaPod restaurant pod — host page</title>
+    <style>
+      :root { color-scheme: light dark; --bg:#0d1117; --fg:#e8e8ec; --muted:#7d8590; --accent:#58a6ff; }
+      body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui,-apple-system,sans-serif; }
+      main { display:grid; grid-template-columns: 1fr 320px; gap:24px; padding:32px; max-width:1100px; margin:0 auto; }
+      @media (max-width: 720px) { main { grid-template-columns: 1fr; } }
+      h1 { margin: 0 0 8px; }
+      h2 { margin: 0 0 12px; font-size:14px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+      #pod { min-height: 480px; border:1px solid #30363d; border-radius:12px; background:#161b22; padding:12px; }
+      aside { border:1px solid #30363d; border-radius:12px; background:#161b22; padding:16px; height: max-content; }
+      .item { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #21262d; }
+      .item:last-child { border-bottom:none; }
+      .qty { color: var(--muted); margin-right: 6px; }
+      .empty { color:var(--muted); padding: 12px 0; }
+      .subtotal { display:flex; justify-content:space-between; padding-top:12px; margin-top:8px; border-top:1px solid #30363d; font-weight:600; }
+      .status { margin-top:12px; padding:8px 12px; border-radius:8px; background:#21262d; }
+      .status[data-status="confirmed"] { background:#1b4332; color:#74c69d; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Restaurant pod</h1>
+        <p>Chat with the pod — the cart on the right updates from
+          <code>STATE_DELTA</code> events on the same DARTC channel. No new
+          topics, no polling.</p>
+        <div id="pod"></div>
+      </section>
+
+      <aside>
+        <h2>Cart</h2>
+        <div id="cart"><div class="empty">Empty.</div></div>
+        <div class="status" id="status" data-status="open">Open</div>
+      </aside>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
+    <script>
+      // Replace with your own origin daemon's signalUrl + podId.
+      const config = {
+        name: "Restaurant",
+        persona: "Takes orders politely.",
+        systemPrompt: "You help the customer build a dinner order, then call confirm() to lock it in.",
+        model: "gemma4:e4b",
+        transport: {
+          webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "restaurant-demo" },
+          fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+        },
+      };
+
+      function renderCart(cart) {
+        const cartEl = document.getElementById("cart");
+        const statusEl = document.getElementById("status");
+        if (!cart || !cart.items || cart.items.length === 0) {
+          cartEl.innerHTML = '<div class="empty">Empty.</div>';
+        } else {
+          cartEl.innerHTML = cart.items
+            .map((it) => `
+              <div class="item">
+                <span><span class="qty">${it.qty}×</span>${it.name}</span>
+                <span>$${((it.qty * it.priceCents) / 100).toFixed(2)}</span>
+              </div>`)
+            .join("") +
+            `<div class="subtotal"><span>Subtotal</span><span>$${((cart.subtotalCents ?? 0) / 100).toFixed(2)}</span></div>`;
+        }
+        statusEl.dataset.status = cart?.status ?? "open";
+        statusEl.textContent = (cart?.status ?? "open") === "confirmed" ? "Confirmed" : "Open";
+      }
+
+      GemmaPod.mountPod(document.getElementById("pod"), config).then(({ runtime }) => {
+        // The shim auto-applies STATE_SNAPSHOT and STATE_DELTA to runtime.state.
+        // Just subscribe to the consolidated `state.changed` event and re-render.
+        runtime.events.on("state.changed", ({ state }) => renderCart(state));
+
+        // Custom UI events (like `checkout.requested`) ride the same channel.
+        runtime.events.on("ui.event", ({ event }) => {
+          if (event.type === "CUSTOM" && event.name === "checkout.requested") {
+            alert(`Confirm checkout for $${(event.value.totalCents / 100).toFixed(2)}?`);
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

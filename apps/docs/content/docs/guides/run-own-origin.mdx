@@ -1,0 +1,119 @@
+---
+title: Run your own origin daemon
+description: The pod calls home; the origin proxies to Gemma 4 on Ollama with signed-manifest enforcement and persistent SQLite memory.
+---
+
+The origin daemon is the **owner-side** of GemmaPod. It runs on your
+machine (Mac mini, NAS, VPS, Raspberry Pi — anything that runs Node 22
+and can reach the signaling broker outbound). For each visitor that
+opens your pod, it:
+
+1. Accepts a WebRTC offer through the signaling broker.
+2. Exchanges signed `dartc.hello` envelopes with the visitor's session
+   key.
+3. Verifies the inlined signed manifest carried in `dartc.hello`.
+4. Intersects the manifest's signed tool allow-list with its local
+   registry — only tools in **both** are exposed to the model.
+5. Streams `gemmapod.chat.delta` frames + signed `gemmapod.ui.event`
+   envelopes as Ollama generates.
+
+## Prereqs
+
+- **Node 22+**
+- **Ollama** (or anything OpenAI-compat) with `gemma4:e4b` pulled:
+
+  ```sh
+  ollama pull gemma4:e4b
+  ollama serve
+  ```
+
+- A reachable **signaling broker** — either
+  `wss://cloud.gemmapod.com/signal` or your
+  [self-hosted broker](/docs/guides/self-host-signaling).
+
+## Start the daemon
+
+```sh
+SIGNAL_URL=wss://cloud.gemmapod.com/signal \
+POD_ID=hello-pod \
+npx @gemmapod/origin
+```
+
+What you'll see:
+
+```
+[origin] registering pod "hello-pod" with wss://cloud.gemmapod.com/signal
+[origin] registered. waiting for visitors.
+```
+
+If a visitor opens your pod from anywhere, you'll see:
+
+```
+[origin] offer  session=… (1234 bytes)
+[origin] dartc.hello verified  visitor=… manifest_ok=true tools=[…]
+[origin] chat.request  conversation=…  model=gemma4:e4b
+[origin] chat.done    conversation=…
+```
+
+## Configuration
+
+| Env                       | Default                          | Meaning                                  |
+| ------------------------- | -------------------------------- | ---------------------------------------- |
+| `SIGNAL_URL`              | `ws://localhost:8080/signal`     | Cloud signaling broker (WSS).            |
+| `POD_ID`                  | `raj-card`                       | Pod id to register for.                  |
+| `OLLAMA_URL`              | `http://localhost:11434`         | Where to proxy chat.                     |
+| `OWNER_PUBKEY`            | unset                            | If set, **reject** manifests not signed by this key. **Recommended for production.** |
+| `GEMMAPOD_ORIGIN_DB`      | `~/.gemmapod/origin.sqlite`      | SQLite path for conversation memory.     |
+| `GEMMAPOD_CONTACT_JSON`   | unset                            | JSON returned by the built-in `share_contact` tool. |
+
+## Docker
+
+```sh
+docker run --rm \
+  -e SIGNAL_URL=wss://cloud.gemmapod.com/signal \
+  -e POD_ID=hello-pod \
+  -e OLLAMA_URL=http://host.docker.internal:11434 \
+  -e OWNER_PUBKEY=<your_pubkey_hex> \
+  -v ~/.gemmapod:/root/.gemmapod \
+  ghcr.io/apprider/gemmapod-origin:latest
+```
+
+Note `host.docker.internal` only resolves on Docker Desktop. On Linux,
+either run with `--network host` or expose Ollama on a routable address.
+
+## Run under launchd / systemd / pm2
+
+The daemon is a long-lived foreground process. Reasonable supervisors:
+
+- **macOS — launchd**: a plist with `KeepAlive=true`.
+- **Linux — systemd**: a unit file with `Restart=always`.
+- **Anywhere — pm2**: `pm2 start npx --name gemmapod-origin -- @gemmapod/origin`.
+
+## Conversation memory
+
+The daemon keeps `(podId, conversationId)` rows in SQLite. A visitor's
+browser refresh creates a new WebRTC peer and a new ephemeral DARTC
+session key, **but** sends the same `conversationId` in the next
+`dartc.hello` — so the daemon reattaches to the existing thread.
+
+To clear memory for a pod:
+
+```sh
+sqlite3 ~/.gemmapod/origin.sqlite "DELETE FROM conversations WHERE pod_id = 'hello-pod';"
+```
+
+## Production hardening
+
+1. **Set `OWNER_PUBKEY`.** Without it, anyone running a pod against
+   your `POD_ID` could request your tools.
+2. **No inbound HTTP.** The daemon is outbound-only — it speaks to the
+   signaling broker via WSS. Don't forward ports.
+3. **Single Ollama URL.** The daemon won't talk to arbitrary backends.
+4. **Audit log.** Stream daemon output to a file or your log
+   aggregator. Each tool call is logged.
+
+## See also
+
+- [Origin README](https://github.com/apprider/gemmapod/blob/main/packages/origin/README.md)
+- [Add a tool](/docs/guides/add-a-tool)
+- [Conversation memory](/docs/guides/conversation-memory)

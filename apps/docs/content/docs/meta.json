@@ -1,0 +1,14 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "introduction",
+    "quickstart",
+    "guides",
+    "reference",
+    "protocol",
+    "recipes",
+    "changelog",
+    "contributing"
+  ]
+}

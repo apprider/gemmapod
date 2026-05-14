@@ -1,0 +1,68 @@
+---
+title: What is GemmaPod?
+description: A signed AI agent capsule you can email, embed, or deploy.
+---
+
+## The one-paragraph version
+
+GemmaPod is an open-source SDK for building **portable AI agents**. You
+describe an agent in a TOML file (its persona, system prompt, model
+preference, allowed tools), sign it with an Ed25519 key, and the CLI
+turns it into a **single self-contained HTML file** the recipient can
+open in any browser. The pod knows how to phone home to a Gemma 4 model
+running on your machine, and if you're offline it knows how to run Gemma
+4 entirely in the visitor's browser via WebGPU.
+
+You can think of it as **the vCard for AI agents** — except the agent is
+*you* (or your product, or your assistant), and the vCard runs a real
+language model.
+
+## What's actually inside a `.html` pod
+
+Three inlined assets:
+
+1. **Signed manifest** (~3 KB) — Ed25519 signature over a CBOR-encoded
+   manifest body. Identity, persona, system prompt, model preference,
+   transport config, allowed tools.
+2. **WASM core** (~228 KB) — Rust compiled to WebAssembly. Signature
+   verification, manifest parsing, DARTC byte signing. The exact same
+   WASM runs in the browser AND in Node (`@gemmapod/pack` and
+   `@gemmapod/cloud` use it server-side too).
+3. **Shim** (~342 KB) — Preact widget + `GemmaPodRuntime` (event bus,
+   state store, capability registry) + three transports (WebRTC, in-
+   browser fallback, direct HTTP for dev). The WASM is inlined as a
+   `data:application/wasm;base64` URL inside the shim, so a single
+   `<script>` tag carries the entire runtime.
+
+Total: ~960 KB. Email-attachable, CDN-cacheable, fits in a tweet about
+its own size.
+
+## What happens when you open one
+
+1. The browser loads the `.html`.
+2. The shim initialises the WASM core (no network).
+3. The WASM verifies the signed manifest. If it doesn't pass, the page
+   shows a red `gemmapod refused to mount` error — no persona, no
+   prompt, nothing the attacker can use.
+4. The runtime walks the transport list: try WebRTC to the owner's
+   origin, then in-browser WebGPU fallback, then a direct HTTP endpoint
+   (dev only).
+5. The first transport whose handshake succeeds wins. Chat begins.
+
+## What this SDK is, and isn't
+
+**It is** an SDK for shipping portable AI agents — one Rust/WASM crypto
+core, one TypeScript runtime, one Preact widget, one CLI, one signaling
+broker. Take what you need; the surface is intentionally small.
+
+**It isn't** an inference engine. Gemma 4 inference happens via Ollama
+(on the owner's box) or transformers.js + WebGPU (in the visitor's
+browser). The SDK is the envelope and the courier.
+
+**It isn't** a chat platform. There's no "GemmaPod cloud" you're
+forced to use. The reference signaling broker (`@gemmapod/cloud`) runs
+on your VM in 30 lines of code. The default registry is in-memory; the
+production registry is whichever storage backend you want behind the
+four-method `Registry` interface.
+
+Continue to [Core concepts →](/docs/introduction/core-concepts)

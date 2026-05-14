@@ -1,0 +1,30 @@
+node_modules
+dist
+.turbo
+.next
+.astro
+.wrangler
+target
+# wasm-pack output: tracked for fresh-clone DX, see packages/core/pkg/.gitignore
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+*.log
+coverage
+
+# pod artifacts
+*.podblob
+*.pod.html
+packages/pack/test-out/
+# Override the blanket "dist" ignore for the shim bundle. The artifact is
+# tracked so App Hosting deploys don't need a JS toolchain to rebuild it
+# on every release. After shim source changes:
+#   pnpm --filter @gemmapod/shim build && git add packages/shim/dist
+!packages/shim/dist/
+!packages/shim/dist/*
+
+# keys — never commit
+*.pem
+*.key
+!example.key

@@ -1,0 +1,95 @@
+---
+title: Embed via a `<script>` tag
+description: One CDN script, one div, one `mountPod` call. Works in any page you control.
+---
+
+## The smallest viable embed
+
+```html
+<div id="pod"></div>
+<script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
+<script>
+  GemmaPod.mountPod(document.getElementById("pod"), {
+    name: "Hello",
+    persona: "Friendly demo agent.",
+    systemPrompt: "Be terse.",
+    model: "gemma4:e4b",
+    transport: {
+      webrtc: {
+        signalUrl: "wss://cloud.gemmapod.com/signal",
+        podId: "your-pod-id",
+      },
+      fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+    },
+  });
+</script>
+```
+
+That's the whole demo. Open the page; chat with the agent. If the
+configured origin daemon is online you get DARTC over WebRTC; if not,
+the visitor sees a fallback panel and can opt into in-browser WebGPU
+Gemma 4.
+
+[Runnable version in the repo →](https://github.com/apprider/gemmapod/tree/main/examples/script-tag-embed)
+
+## What `mountPod` returns
+
+```ts
+const { runtime, destroy } = await GemmaPod.mountPod(el, config, options?);
+```
+
+- `runtime` — the [`GemmaPodRuntime`](/docs/reference/runtime/GemmaPodRuntime)
+  instance. Use it to subscribe to events, drive chat from code, or
+  observe state.
+- `destroy()` — call on unmount / route change. Closes the transport,
+  removes the Preact widget, tears down the fallback panel.
+
+## Useful options
+
+```ts
+GemmaPod.mountPod(el, config, {
+  ui: "chat",                 // default. "none" = headless, host renders UI.
+  fallbackUi: "default",      // default if transport.fallback is set. "none" = no panel.
+  fallbackPlacement: "before",// where the panel mounts relative to el. "before" | "after" | "prepend".
+  fallbackMountParent: someEl // used with ui: "none" + fallbackUi: "default".
+});
+```
+
+See [`mountPod` reference](/docs/reference/runtime/mountPod) for every
+option.
+
+## Subscribe to events
+
+```js
+const { runtime } = await GemmaPod.mountPod(el, config);
+
+runtime.events.on("transport.ready", (e) =>
+  console.log("connected via", e.transport),
+);
+runtime.events.on("transport.fallback", (e) =>
+  console.warn("falling back:", e.reason),
+);
+runtime.events.on("ui.event", ({ event }) => {
+  // Every signed gemmapod.ui.event arrives here, regardless of transport.
+  // STATE_SNAPSHOT, TEXT_MESSAGE_*, TOOL_CALL_*, CUSTOM, etc.
+  console.log(event.type, event);
+});
+```
+
+## Production checklist
+
+1. **Pin the version** — replace `@0.1.0` with whatever tag you tested.
+2. **Add Subresource Integrity** (see [embedding cookbook](/docs/guides/embed-on-any-page)).
+3. **Set a strict CSP** on the host page. The shim needs
+   `'wasm-unsafe-eval'` for the WASM core and `'unsafe-inline'` for the
+   inlined boot snippet; everything else can be locked down.
+4. **Point `signalUrl` at your own broker** — either
+   [self-hosted](/docs/guides/self-host-signaling) or the public
+   `cloud.gemmapod.com`.
+5. **Call `destroy()`** on route change in SPAs.
+
+## What's next
+
+- [Embed in Next.js](/docs/guides/embed-in-nextjs)
+- [Embed in React with a custom UI](/docs/quickstart/first-pod-react)
+- [AG-UI-shaped event bridge](/docs/guides/ag-ui-bridge)

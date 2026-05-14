@@ -1,0 +1,90 @@
+---
+title: RuntimeStateStore
+description: JSON Patch-compatible state with one snapshot/delta event from the runtime.
+---
+
+## Type
+
+```ts
+interface RuntimeStateStore {
+  get<T = unknown>(path?: string): T;
+  set(path: string, value: unknown): Promise<void>;
+  replace(value: unknown): Promise<void>;
+  apply(delta: JsonPatchOperation[]): Promise<void>;
+  subscribe(handler: (state: unknown) => void): () => void;
+}
+
+type JsonPatchOperation =
+  | { op: "add" | "replace" | "test"; path: string; value: unknown }
+  | { op: "remove"; path: string }
+  | { op: "move" | "copy"; from: string; path: string };
+```
+
+## Methods
+
+| Method     | Description                                                                          |
+| ---------- | ------------------------------------------------------------------------------------ |
+| `get`      | Read at a JSON Pointer path. `""` or `"/"` returns the root.                         |
+| `set`      | Replace the value at a path. Creates intermediate objects/arrays as needed.          |
+| `replace`  | Replace the entire root (whole-tree update).                                         |
+| `apply`    | Apply an RFC 6902 patch sequence in order.                                           |
+| `subscribe`| Direct subscription that bypasses the event bus. Returns an unsubscribe function.    |
+
+## Auto-applied DARTC events
+
+The runtime auto-applies these `gemmapod.ui.event` types into the
+store, then emits `state.changed`:
+
+| DARTC event       | Effect                                |
+| ----------------- | ------------------------------------- |
+| `STATE_SNAPSHOT`  | `state.replace(event.snapshot)`        |
+| `STATE_DELTA`     | `state.apply(event.delta)`             |
+
+Your host code never has to handle these manually — subscribe to
+`state.changed` and re-render.
+
+## Path syntax (RFC 6901)
+
+```ts
+state.get("/cart/items/0/name");
+state.set("/cart/subtotalCents", 1400);
+state.apply([{ op: "remove", path: "/cart/items/0" }]);
+```
+
+- `/cart/items/0` — array index
+- `/foo~1bar` — escape `/` in keys (RFC 6901)
+- `/foo~0bar` — escape `~` in keys
+
+## Patterns
+
+### Re-render on every state change
+
+```ts
+runtime.events.on("state.changed", ({ state }) => renderCart(state));
+```
+
+### Inspect a sub-path
+
+```ts
+const subtotal = runtime.state.get<number>("/cart/subtotalCents");
+```
+
+### Bypass the bus
+
+```ts
+const off = runtime.state.subscribe((next) => updateUI(next));
+// off() to unsubscribe
+```
+
+## Concurrency
+
+`set` / `replace` / `apply` are async only so future implementations
+can defer to a worker. Today they run synchronously inside the
+promise; you can `await` for ordering but don't need to for
+correctness on a single thread.
+
+## See also
+
+- [State + snapshots guide](/docs/guides/state-and-snapshots)
+- [DARTC `STATE_SNAPSHOT` / `STATE_DELTA`](/docs/reference/dartc/ui-events)
+- [Restaurant pod example](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod)

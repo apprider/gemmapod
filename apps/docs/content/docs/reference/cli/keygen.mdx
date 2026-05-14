@@ -1,0 +1,54 @@
+---
+title: gemmapod keygen
+description: Generate a fresh Ed25519 keypair for signing pod manifests.
+---
+
+## Synopsis
+
+```sh
+gemmapod keygen --out <path>
+```
+
+## Description
+
+Generates an Ed25519 keypair using the same Rust/WASM core the browser
+uses to verify. Writes a JSON file containing `publicKey` (hex) and
+`secretKey` (hex) with mode `0600`.
+
+The keypair lets you sign any number of pods. **The secret key
+identifies you** — anyone with the file can sign pods that claim your
+identity.
+
+## Options
+
+| Flag           | Default       | Meaning                                  |
+| -------------- | ------------- | ---------------------------------------- |
+| `--out <path>` | _(required)_  | Where to write the keypair JSON.         |
+
+## Example
+
+```sh
+gemmapod keygen --out ~/.gemmapod/raj-card.key
+# wrote keypair to /Users/raj/.gemmapod/raj-card.key
+#   publicKey: 3b3bca711bee628f75d9c34337429609afed9b507dceb62310a3f34180c64098
+#   copy this into pod.toml as owner_pubkey, then 'gemmapod build'.
+```
+
+You **do not** put the secret key in `pod.toml`. The CLI auto-fills the
+manifest's `owner_pubkey` from the `publicKey` field of the file you
+pass to `--key` at build time.
+
+## Security
+
+- The file is written with `chmod 0600` (read/write owner only).
+- Don't check it into git — the default `.gitignore` from
+  `gemmapod init` excludes it.
+- Loss = inability to sign new pods with the same identity. Rotation =
+  generate a new key, sign new pods, deploy with a new id. There is no
+  revocation today; trust is by-pubkey.
+
+## See also
+
+- [`gemmapod build`](/docs/reference/cli/build)
+- [`pod.toml` reference](/docs/reference/pod-manifest/pod-toml)
+- [Security model](/docs/protocol/security-model)

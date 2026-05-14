@@ -1,0 +1,105 @@
+---
+title: In-browser fallback (WebGPU)
+description: When the owner is offline, run Gemma 4 entirely in the visitor's browser.
+---
+
+The fallback path is what keeps a pod alive when the owner's origin is
+unreachable. It runs **Gemma 4 (E2B or E4B)** entirely in the visitor's
+browser via `transformers.js` + WebGPU. No network during chat (after
+the one-time model download).
+
+## When the fallback is used
+
+The transport selector tries `webrtc` first. If WebRTC can't connect
+(origin offline, NAT-blocked, manifest has no `transport.webrtc`), and
+the manifest declares a `transport.fallback`, **and** the browser
+exposes `navigator.gpu`, the runtime returns a `FallbackTransport` —
+**unprepared**.
+
+Nothing downloads until the visitor clicks. This is non-negotiable in
+the runtime — pods that drag down megabytes without permission are
+hostile.
+
+## The fallback UI
+
+`mountPod(...)` with `fallbackUi: "default"` builds a panel automatically
+showing:
+
+- Model picker (E2B / E4B — depends on what the manifest allows)
+- Cache state (how much is already cached for this model)
+- WebGPU availability (a clear "your browser doesn't have WebGPU"
+  message when applicable)
+- A single button: **Download local model**, or **Use cached model** if
+  files are already in the browser's Cache API
+- Per-file progress during download
+
+Want your own panel? Pass `fallbackUi: "none"` and call
+`attachBrowserFallbackPrepare(el, runtime)` yourself, or call
+`runtime.getTransport().prepare(onProgress)` directly.
+
+## What gets downloaded
+
+| Resource           | Size           | Cached where                  |
+| ------------------ | -------------- | ----------------------------- |
+| `transformers.js`  | ~3 MB          | Browser Cache API (jsDelivr)  |
+| Gemma 4 E2B (q4)   | ~3 GB          | Browser Cache API (HF)        |
+| Gemma 4 E4B (q4)   | ~3.9 GB        | Browser Cache API (HF)        |
+
+Once downloaded, the browser caches the files in the
+`transformers-cache` Cache API store. Any subsequent pod using the same
+model is **instant** — the runtime probes the cache before showing the
+"Download" button and offers "Use cached model" when present.
+
+## Sharing the cache across pods
+
+The fallback uses the same `transformers-cache` regardless of which pod
+loaded it. So once a visitor has downloaded E2B for *any* GemmaPod,
+every E2B pod they encounter starts instantly.
+
+## What happens after the visitor clicks
+
+1. `transformers.js` loads from jsDelivr.
+2. Model files load from Hugging Face (or its xet CDN at
+   `cas-bridge.xethub.hf.co`). Streamed; the progress bar updates.
+3. The runtime emits `gemmapod.ui.event` envelopes **locally** — the
+   same shape the WebRTC path emits remotely. Your host code sees one
+   unified stream regardless of transport.
+4. Chat begins. All inference is WebGPU; no model bytes leave the
+   visitor's machine.
+
+## Configuring fallback in the manifest
+
+```toml
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"
+
+# Optional: let the visitor pick between variants
+[[transport.fallback.models]]
+id = "onnx-community/gemma-4-E2B-it-ONNX"
+label = "Gemma 4 E2B"
+sizeMB = 3000
+
+[[transport.fallback.models]]
+id = "onnx-community/gemma-4-E4B-it-ONNX"
+label = "Gemma 4 E4B"
+sizeMB = 3900
+```
+
+The runtime's first picked model is `model`; the panel offers the
+others. Selecting a different model resets the prepare state to
+`unprepared`.
+
+## What's missing today
+
+- **Streaming output to the host UI.** Today the fallback emits
+  `TEXT_MESSAGE_*` events but the underlying generator finishes a token
+  batch at a time; perceived latency is higher than WebRTC + Ollama.
+- **Tools.** The browser fallback can't call origin tools — the origin
+  is unreachable. Pods that depend on tools should declare them
+  required in the manifest and degrade gracefully.
+
+## See also
+
+- [Architecture — transport selection](/docs/introduction/architecture)
+- [Transports reference](/docs/reference/runtime/Transports)
+- [Fallback host helper](/docs/reference/runtime/Transports#attachbrowserfallbackprepare)

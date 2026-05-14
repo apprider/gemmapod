@@ -1,0 +1,60 @@
+name: Origin native build matrix
+
+on:
+  pull_request:
+    paths:
+      - "packages/origin/**"
+      - "packages/core/**"
+      - ".github/workflows/origin-native.yml"
+  schedule:
+    # Weekly Monday 09:00 UTC — catch upstream node-datachannel regressions
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: origin-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install workspace (includes node-datachannel native rebuild)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build origin
+        run: pnpm --filter @gemmapod/origin build
+
+      # Smoke-test: start the daemon, wait briefly, then kill it.
+      # If node-datachannel failed to load, the import itself would have
+      # thrown and we'd never reach this step.
+      - name: Smoke-test origin daemon import (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          node -e "import('./packages/origin/dist/daemon.js').then(() => console.log('origin: imported ok')).catch(e => { console.error(e); process.exit(1); })"
+
+      - name: Smoke-test origin daemon import (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node -e "import('./packages/origin/dist/daemon.js').then(() => console.log('origin: imported ok')).catch(e => { console.error(e); process.exit(1); })"

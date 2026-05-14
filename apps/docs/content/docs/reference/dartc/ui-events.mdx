@@ -1,0 +1,125 @@
+---
+title: UI events
+description: The AG-UI-shaped event catalogue carried on `gemmapod.ui.event`.
+---
+
+`gemmapod.ui.event` is the typed event stream pods use to drive a host
+UI without minting new DARTC topics per affordance. Every envelope on
+this topic wraps a `DartcUiEvent` in a versioned payload:
+
+```ts
+interface DartcUiEventPayload {
+  schema: "dartc.ui.event/0.1";
+  event: DartcUiEvent;
+}
+```
+
+The runtime auto-verifies envelopes, unwraps the `event`, and re-emits
+it on the typed bus:
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  // event is a fully-typed DartcUiEvent
+});
+```
+
+## Catalogue
+
+### Lifecycle
+
+| Type            | Payload fields beyond `type`                                |
+| --------------- | ----------------------------------------------------------- |
+| `RUN_STARTED`   | `threadId`, `runId`, `parentRunId?`, `input?`, `timestamp?` |
+| `RUN_FINISHED`  | `threadId`, `runId`, `timestamp?`                           |
+| `RUN_ERROR`     | `threadId`, `runId`, `message`, `code?`, `timestamp?`       |
+
+### Text messages
+
+Start/content/end triplet for streaming assistant (or other-role) text.
+
+| Type                   | Payload fields beyond `type`                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `TEXT_MESSAGE_START`   | `threadId`, `runId`, `messageId`, `role: "assistant" \| "user" \| "system" \| "tool" \| "reasoning"`, `timestamp?` |
+| `TEXT_MESSAGE_CONTENT` | `threadId`, `runId`, `messageId`, `delta`, `timestamp?`                                     |
+| `TEXT_MESSAGE_END`     | `threadId`, `runId`, `messageId`, `timestamp?`                                              |
+
+### Tool calls
+
+| Type                | Payload fields beyond `type`                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `TOOL_CALL_START`   | `threadId`, `runId`, `toolCallId`, `toolCallName`, `parentMessageId?`, `timestamp?`       |
+| `TOOL_CALL_ARGS`    | `threadId`, `runId`, `toolCallId`, `delta`, `timestamp?`                                  |
+| `TOOL_CALL_END`     | `threadId`, `runId`, `toolCallId`, `timestamp?`                                           |
+| `TOOL_CALL_RESULT`  | `threadId`, `runId`, `messageId`, `toolCallId`, `content`, `role?: "tool"`, `timestamp?`  |
+
+### State
+
+Auto-applied into [`RuntimeStateStore`](/docs/reference/runtime/RuntimeStateStore).
+
+| Type                | Payload fields beyond `type`                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `STATE_SNAPSHOT`    | `threadId`, `runId?`, `snapshot`, `timestamp?`                                            |
+| `STATE_DELTA`       | `threadId`, `runId?`, `delta: JsonPatchOperation[]`, `timestamp?` (RFC 6902)              |
+
+### Chat history
+
+| Type                | Payload fields beyond `type`                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `MESSAGES_SNAPSHOT` | `threadId`, `messages: Array<{ id?: string; role: string; content?: string; …}>`, `timestamp?` |
+
+Auto-applied into [`RuntimeChatApi.setHistory`](/docs/reference/runtime/RuntimeChatApi).
+
+### Activity (per-message side panels)
+
+Not auto-applied — the host decides how to render.
+
+| Type                | Payload fields beyond `type`                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| `ACTIVITY_SNAPSHOT` | `threadId`, `runId?`, `messageId`, `activityType`, `content`, `replace?`, `timestamp?`           |
+| `ACTIVITY_DELTA`    | `threadId`, `runId?`, `messageId`, `activityType`, `patch: JsonPatchOperation[]`, `timestamp?`   |
+
+### Escape hatches
+
+| Type     | Payload fields beyond `type`                                          | When to use                         |
+| -------- | --------------------------------------------------------------------- | ----------------------------------- |
+| `CUSTOM` | `threadId`, `runId?`, `name`, `value?`, `timestamp?`                  | Anything app-specific that doesn't fit the typed catalogue. |
+| `RAW`    | `threadId?`, `runId?`, `event: unknown`, `timestamp?`                 | Vendor-specific telemetry. MUST NOT carry chat content. |
+
+## AG-UI mapping
+
+Use `mapDartcUiEventToAgUi(event)` to rewrite the `type` discriminator
+from `SCREAMING_SNAKE` to `PascalCase` for [AG-UI](https://docs.ag-ui.com/concepts/events)
+consumers. Field names are unchanged. Unknown DARTC types map to `Raw`.
+
+See [AG-UI bridge guide](/docs/guides/ag-ui-bridge).
+
+## Helper
+
+`@gemmapod/dartc#createUiEventEnvelope` wraps a `DartcUiEvent` in a
+signed DARTC envelope with the right topic + schema:
+
+```ts
+import { createUiEventEnvelope, signEnvelope } from "@gemmapod/dartc";
+
+const envelope = await signEnvelope(
+  createUiEventEnvelope({
+    from: "pod:hello-pod:origin",
+    to: "visitor:session-pubkey",
+    event: {
+      type: "STATE_DELTA",
+      threadId: "conv_xyz",
+      runId: "run_abc",
+      delta: [{ op: "replace", path: "/cart/subtotalCents", value: 1400 }],
+      timestamp: Date.now(),
+    },
+  }),
+  sign,
+);
+```
+
+## See also
+
+- [State + snapshots guide](/docs/guides/state-and-snapshots)
+- [Custom UI driven by events](/docs/guides/custom-ui-with-events)
+- [DARTC envelope](/docs/reference/dartc/envelope)
+- [DARTC spec §8 UI Event Binding](/docs/protocol/dartc-spec)

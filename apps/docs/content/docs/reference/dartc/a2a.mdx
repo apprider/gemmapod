@@ -1,0 +1,102 @@
+---
+title: A2A interop
+description: Agent2Agent semantic objects carried over DARTC.
+---
+
+DARTC is the **transport binding**. A2A
+([Agent2Agent](https://github.com/a2aproject/A2A)) is the **semantic
+layer** GemmaPod carries over that transport. Together they let a
+GemmaPod pod be discoverable and addressable by any A2A-compatible
+agent or platform.
+
+## What ships in v0.1
+
+- **Agent Card discovery** on `a2a.discovery`. The origin daemon
+  derives an `A2AAgentCard` from the signed pod manifest (pod name,
+  persona, signed tools as skills, DARTC binding metadata, pod id,
+  owner pubkey) and pushes it once at session start.
+
+- **Type definitions** for `A2AAgentCard` and `A2ADiscoveryPayload` in
+  `@gemmapod/dartc`.
+
+## AgentCard shape (as we use it)
+
+```ts
+interface A2AAgentCard {
+  protocolVersion?: string;
+  name: string;
+  description: string;
+  url?: string;
+  capabilities?: Record<string, unknown>;
+  skills?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    tags?: string[];
+  }>;
+  provider?: {
+    organization: string;
+    url?: string;
+  };
+  extensions?: Array<Record<string, unknown>>;
+}
+
+interface A2ADiscoveryPayload {
+  kind: "AgentCard";
+  card: A2AAgentCard;
+}
+```
+
+## Subscribing in your host
+
+The browser runtime emits `a2a.card` on the typed bus when one arrives:
+
+```ts
+runtime.events.on("a2a.card", ({ card }) => {
+  console.log("connected to", card.name);
+  renderAgentInfo(card);
+});
+
+// or read after the fact:
+runtime.a2a.card; // A2AAgentCard | undefined
+```
+
+## On the wire
+
+A2A objects ride the envelope's `a2a` field; DARTC delivery metadata
+(stream / ack / chunking) rides `dartc`:
+
+```json
+{
+  "version": "0.2",
+  "topic": "a2a.discovery",
+  "from": "pod:hello-pod:origin",
+  "to": "visitor:session-pubkey",
+  "a2a": {
+    "kind": "AgentCard",
+    "card": { "name": "Hello Pod", "description": "Friendly demo agent.", "skills": [] }
+  },
+  "dartc": { "stream": false },
+  "payload": {
+    "binding": "dartc",
+    "topics": ["a2a.discovery", "a2a.message", "a2a.task"]
+  },
+  "signature": "…"
+}
+```
+
+## What's planned
+
+- **`a2a.message`** — send / stream A2A `Message` objects between pods.
+- **`a2a.task`** — task state, subscription, cancellation, artifacts.
+- **`a2a.capability`** — capability / extension advertisement.
+
+These are reserved topics today; the message / task envelopes will use
+the same `a2a` field for their typed objects.
+
+## See also
+
+- [DARTC envelope](/docs/reference/dartc/envelope)
+- [DARTC topics](/docs/reference/dartc/topics)
+- [A2A spec](https://github.com/a2aproject/A2A) (external)
+- [`@gemmapod/dartc` source](https://github.com/apprider/gemmapod/blob/main/packages/dartc/src/index.ts)

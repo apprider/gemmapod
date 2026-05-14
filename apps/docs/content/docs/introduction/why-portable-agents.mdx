@@ -1,0 +1,76 @@
+---
+title: Why portable agents
+description: The thesis behind GemmaPod, and what changes when the agent is the artefact.
+---
+
+## The thesis
+
+Local LLMs are about to become as personal as a phone. The dominant
+shape of an AI agent today is **a tab on someone else's website** —
+ChatGPT, Claude, Cursor, Replit. The owner of the agent and the owner
+of the chat surface are different parties.
+
+GemmaPod is the bet that the next shape is different: **the agent is
+the artefact**. You write its persona, sign it, and send it.
+
+This is the same trajectory email took. RFC 822 didn't promise a chat
+platform; it promised "you can write something and route it through
+servers you don't run to a person you do trust." A signed pod is the
+same promise applied to an AI agent: write it, sign it, route it.
+
+## Three things that change once the agent is portable
+
+### 1. Who runs the model is decoupled from who designed the agent
+
+You can ship a persona that runs on your Mac mini at home, on a friend's
+server, on a sidecar in a corporate VPC, or in the visitor's own browser
+via WebGPU. **The persona is the same; the inference is wherever the
+trust is.**
+
+### 2. The system prompt is signed, not whispered
+
+Today's chatbots have a server-side system prompt nobody outside the
+operator can see. A GemmaPod's system prompt is **committed to a public
+signature**. If the operator changes the persona, the signature changes,
+the pod id changes, and the change is visible. This matters for
+business-card use cases ("does this AI agent really represent Raj?") and
+for negotiation use cases ("did the persona I signed even reach the
+other party?").
+
+### 3. Tools become a portable allow-list
+
+A pod carries a signed list of tool names. The origin daemon executes
+only tools that are **both** in the signed manifest **and** implemented
+in the local registry. The pod cannot grow new tools at runtime; the
+runtime cannot expose tools the pod didn't authorise. Trust is bounded
+to the union of two static sets, both controlled by the owner.
+
+## Three use cases the SDK was built for
+
+- **The portable AI business card.** Drop it on someone's website, attach
+  it to a job-search email. It answers questions about you, shares a CV
+  on request, runs on your home machine so you control the persona.
+- **The take-home product demo.** A SaaS company emails a prospect a
+  `.html` that explains their product, answers questions, and lets the
+  prospect kick the tires without a sales call.
+- **The negotiator that goes places for you.** Pods can carry the
+  owner's persona + a tools allow-list through systems the owner never
+  visits. (See [the negotiation recipe](/docs/recipes/negotiation-pod).)
+
+## What GemmaPod deliberately doesn't try to do
+
+- **Replace ChatGPT or Claude.** Those are excellent at being chatbots.
+  GemmaPod is excellent at being *sendable*.
+- **Be a model platform.** Inference happens via Ollama or
+  transformers.js + WebGPU. The SDK is the envelope and the courier.
+- **Have a default centralised cloud.** The reference `@gemmapod/cloud`
+  signaling broker is 30 lines you run on your own VM. The public
+  `gemmapod.com/<id>` deploy path exists for convenience, not lock-in.
+
+---
+
+If that landed, the next pages are practical:
+
+- [Build your first pod with the CLI](/docs/quickstart/first-pod-cli)
+- [Embed a pod via a `<script>` tag](/docs/quickstart/first-pod-script)
+- [Run a headless pod in React](/docs/quickstart/first-pod-react)

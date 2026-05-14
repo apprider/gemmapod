@@ -1,0 +1,30 @@
+# hello-pod — the smallest signed GemmaPod manifest that does something useful.
+#
+# Build with:
+#   pnpm --filter @gemmapod/pack exec gemmapod keygen --out owner.key
+#   pnpm --filter @gemmapod/pack exec gemmapod build pod.toml --key owner.key --out hello-pod.html
+#
+# Open hello-pod.html in any browser. If you also run `pnpm dev:origin` and
+# `pnpm dev:cloud` locally, the pod chats with your real Gemma 4 over WebRTC.
+# If not, click "Use cached model" in the fallback panel and it'll run Gemma 4
+# E2B entirely in your browser (one-time ~3 GB download).
+
+name = "hello-pod"
+persona = "A pod that introduces itself."
+model = "gemma4:e4b"
+
+system_prompt = """
+You are a hello-world AI agent shipped as a signed HTML file. When asked, you
+explain that you are a "gemmapod" — a portable AI agent capsule — and that
+the visitor can email, embed, or deploy you. Be friendly and concise.
+"""
+
+[transport]
+preferred = ["webrtc", "fallback"]
+
+[transport.webrtc]
+signal_url = "ws://localhost:8080/signal"
+pod_id = "hello-pod"
+
+[transport.fallback]
+model = "onnx-community/gemma-4-E2B-it-ONNX"

@@ -1,0 +1,94 @@
+name: Bug report
+description: Something in GemmaPod is broken or behaves unexpectedly.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. A small reproducible example
+        is worth ten paragraphs — please attach a minimal `pod.toml`, a code
+        snippet, or a link to a CodeSandbox/StackBlitz if you can.
+
+        For security issues, **do not** open a public issue. See
+        [SECURITY.md](../blob/main/SECURITY.md) instead.
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Affected package
+      description: Which `@gemmapod/*` package is the bug in?
+      multiple: false
+      options:
+        - "@gemmapod/browser (browser SDK / IIFE)"
+        - "@gemmapod/shim (browser runtime + Preact widget)"
+        - "@gemmapod/runtime (planned)"
+        - "@gemmapod/core (Rust → WASM signing/verifying)"
+        - "@gemmapod/dartc (envelope + UI-event types)"
+        - "@gemmapod/pack (gemmapod CLI)"
+        - "@gemmapod/origin (owner daemon)"
+        - "@gemmapod/cloud (signaling broker)"
+        - "Documentation (docs.gemmapod.com)"
+        - "Examples (examples/*)"
+        - "Unsure"
+    validations:
+      required: true
+
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: e.g. 0.1.0. Run `npm ls @gemmapod/<pkg>` to check.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where does it happen?
+      options:
+        - "Browser (Chrome)"
+        - "Browser (Firefox)"
+        - "Browser (Safari)"
+        - "Browser (other)"
+        - "Node.js (≥22)"
+        - "Packed .html pod (file://)"
+        - "Packed .html pod (deployed via gemmapod.com/<id>)"
+        - "Docker (ghcr.io/apprider/gemmapod-origin)"
+        - "Other / multiple"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps to reproduce, plus a minimal example if possible.
+      placeholder: |
+        1. `pnpm add @gemmapod/browser`
+        2. Call `GemmaPod.mountPod(el, { … })`
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include console output, stack traces, or network frames if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: OS, Node version, browser version, anything else that might matter.

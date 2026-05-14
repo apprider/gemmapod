@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest a new feature, API surface, or improvement.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please read the
+        [runtime spec](../blob/main/runtime.md) and
+        [DARTC spec](../blob/main/dartc.md) first if your idea touches the
+        runtime contract or wire protocol — many proposals already have a
+        planned home there.
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Affected package
+      multiple: true
+      options:
+        - "@gemmapod/browser"
+        - "@gemmapod/shim"
+        - "@gemmapod/runtime (planned)"
+        - "@gemmapod/core"
+        - "@gemmapod/dartc"
+        - "@gemmapod/pack"
+        - "@gemmapod/origin"
+        - "@gemmapod/cloud"
+        - "Documentation"
+        - "Examples"
+        - "Other / cross-cutting"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user-facing use case, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API sketch, manifest field, DARTC event type, etc. Optional.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, existing patterns, or trade-offs we should know.
+    validations:
+      required: false

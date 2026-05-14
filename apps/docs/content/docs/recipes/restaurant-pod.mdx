@@ -1,0 +1,87 @@
+---
+title: Restaurant pod
+description: Take orders via chat, render a live cart from STATE_SNAPSHOT events.
+---
+
+A worked example of [headless state](/docs/guides/state-and-snapshots).
+The origin emits `STATE_SNAPSHOT` + `STATE_DELTA` events over DARTC and
+the visitor's page renders a real cart beside the chat — no extra
+WebSocket, no polling, no new topic.
+
+Runnable version:
+[`examples/restaurant-pod`](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod).
+
+## The event sequence
+
+```text
+RUN_STARTED
+STATE_SNAPSHOT      { items: [], subtotalCents: 0, status: "open" }
+TEXT_MESSAGE_START  msg_1 (assistant)
+TEXT_MESSAGE_CONTENT delta="Sure, adding a margherita pizza."
+TEXT_MESSAGE_END    msg_1
+STATE_DELTA         [{op:"add",path:"/items/0",value:{…}}, {op:"replace",path:"/subtotalCents",value:1400}]
+STATE_DELTA         [{op:"add",path:"/items/1",value:{…}}, {op:"replace",path:"/subtotalCents",value:2100}]
+STATE_DELTA         [{op:"replace",path:"/status",value:"confirmed"}]
+CUSTOM              name="checkout.requested", value={ totalCents: 2100, currency: "USD" }
+RUN_FINISHED
+```
+
+## Host code (renders the cart)
+
+```ts
+const { runtime } = await GemmaPod.mountPod(document.getElementById("pod"), config);
+
+// The runtime auto-applies STATE_SNAPSHOT + STATE_DELTA. Just subscribe.
+runtime.events.on("state.changed", ({ state }) => renderCart(state));
+
+// CUSTOM events are app-specific.
+runtime.events.on("ui.event", ({ event }) => {
+  if (event.type === "CUSTOM" && event.name === "checkout.requested") {
+    showCheckoutSheet(event.value);
+  }
+});
+```
+
+## Origin code (emits the events)
+
+The example ships a `src/origin.ts` simulator showing the exact emit
+calls. In a real origin daemon you'd wrap each `event` in a signed
+DARTC envelope using `@gemmapod/dartc#createUiEventEnvelope`:
+
+```ts
+import { createUiEventEnvelope, signEnvelope } from "@gemmapod/dartc";
+
+const envelope = await signEnvelope(
+  createUiEventEnvelope({
+    from: "pod:restaurant-pod:origin",
+    to: "visitor:session-pubkey",
+    event: {
+      type: "STATE_DELTA",
+      threadId,
+      runId,
+      delta: [
+        { op: "add", path: `/items/${items.length}`, value: { id, name, qty, priceCents } },
+        { op: "replace", path: "/subtotalCents", value: subtotal },
+      ],
+      timestamp: Date.now(),
+    },
+  }),
+  sign,
+);
+
+dataChannel.send(JSON.stringify(envelope));
+```
+
+## Why this pattern matters
+
+The alternatives — a second WebSocket, a polling endpoint, a custom
+topic per feature — all add infra surface. `STATE_SNAPSHOT` +
+`STATE_DELTA` ride the same signed channel that's already moving chat
+traffic, scale from a cart of three items to a thousand-row dashboard,
+and use the well-known RFC 6902 JSON Patch operations.
+
+## See also
+
+- [State + snapshots guide](/docs/guides/state-and-snapshots)
+- [`examples/restaurant-pod`](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod)
+- [DARTC UI events catalogue](/docs/reference/dartc/ui-events)

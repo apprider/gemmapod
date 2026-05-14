@@ -1,0 +1,70 @@
+{
+  "name": "@gemmapod/shim",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser runtime for GemmaPod pods: GemmaPodRuntime (event bus, state store, capability registry), DARTC over WebRTC + WebGPU fallback + direct HTTP transports, AG-UI-shaped UI event stream, and the default Preact chat widget. Ships two IIFEs from one source — full and runtime-only.",
+  "keywords": [
+    "gemmapod",
+    "ai-agent",
+    "dartc",
+    "webrtc",
+    "preact",
+    "transformers.js",
+    "webgpu",
+    "ag-ui",
+    "a2a",
+    "ed25519",
+    "browser-sdk"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/shim"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./dist/gemmapod-shim.iife.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/gemmapod-shim.iife.js"
+    },
+    "./runtime": {
+      "types": "./dist/types/runtime.d.ts",
+      "default": "./dist/gemmapod-runtime.iife.js"
+    },
+    "./dist/gemmapod-shim.iife.js": "./dist/gemmapod-shim.iife.js",
+    "./dist/gemmapod-runtime.iife.js": "./dist/gemmapod-runtime.iife.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && vite build --config vite.runtime.config.ts && node scripts/prepack.mjs",
+    "prepack": "node scripts/prepack.mjs",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@gemmapod/core": "workspace:*",
+    "@gemmapod/dartc": "workspace:*",
+    "@huggingface/transformers": "^3.7.0",
+    "preact": "^10.25.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.9.3",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

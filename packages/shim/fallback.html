@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GemmaPod — fallback-only playground</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #050507;
+      }
+      body {
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        padding: 24px;
+        min-height: 100vh;
+      }
+      [data-gemmapod-fallback-host] {
+        flex-shrink: 0;
+        margin-bottom: 12px;
+        max-width: 720px;
+        width: 100%;
+        align-self: center;
+      }
+      #pod {
+        flex: 1;
+        min-height: 0;
+        max-width: 720px;
+        width: 100%;
+        align-self: center;
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="pod"></div>
+    <script type="module">
+      import { mountPod } from "./src/index.ts";
+      mountPod(document.getElementById("pod")!, {
+        name: "raj-card (fallback-only)",
+        persona: "Raj's AI business card",
+        systemPrompt:
+          "You are Raj's AI business card running entirely in the visitor's browser via Gemma 4 on WebGPU. Be concise.",
+        model: "onnx-community/gemma-4-E2B-it-ONNX",
+        transport: {
+          fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+        },
+      });
+    </script>
+  </body>
+</html>

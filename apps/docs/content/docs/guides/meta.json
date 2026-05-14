@@ -1,0 +1,20 @@
+{
+  "title": "Guides",
+  "pages": [
+    "embed-on-any-page",
+    "embed-in-nextjs",
+    "embed-in-react",
+    "headless-mode",
+    "custom-ui-with-events",
+    "copilotkit-style",
+    "ag-ui-bridge",
+    "add-a-tool",
+    "send-pod-by-email",
+    "deploy-to-cloud",
+    "self-host-signaling",
+    "run-own-origin",
+    "in-browser-fallback",
+    "conversation-memory",
+    "state-and-snapshots"
+  ]
+}

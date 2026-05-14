@@ -1,0 +1,83 @@
+---
+title: RuntimeEventBus
+description: Typed pub/sub for runtime, transport, A2A, UI, and chat-history events.
+---
+
+## Type
+
+```ts
+interface RuntimeEventBus {
+  on<T extends RuntimeEvent["type"]>(
+    type: T,
+    handler: (event: Extract<RuntimeEvent, { type: T }>) => void,
+  ): () => void;
+
+  once<T extends RuntimeEvent["type"]>(
+    type: T,
+    handler: (event: Extract<RuntimeEvent, { type: T }>) => void,
+  ): () => void;
+
+  emit(event: RuntimeEvent): void;
+}
+```
+
+All three methods are typed — pick a `type` string and the handler
+parameter narrows to the matching event payload.
+
+## Events emitted
+
+| `type`               | When                                                                      |
+| -------------------- | ------------------------------------------------------------------------- |
+| `runtime.ready`      | After `connect()` succeeds and a transport is bridged.                    |
+| `runtime.destroyed`  | After `destroy()`.                                                        |
+| `runtime.error`      | Any runtime-level error (transport failure, UI-event ingestion crash).    |
+| `transport.connecting` | Connection attempt started. `transport` is `"auto"` for the selector.  |
+| `transport.ready`    | A transport opened. Payload `transport` names which one.                  |
+| `transport.updated`  | Internal transport object mutated (fallback state flipped, etc.).         |
+| `transport.fallback` | Selector fell through. Payload: `{ from, to, reason }`.                   |
+| `transport.webrtc`   | Stage events from the WebRTC ladder (signaling open, hello, …).           |
+| `a2a.card`           | An A2A Agent Card was discovered (over `a2a.discovery` or via `CUSTOM name="a2a.card"`). |
+| `ui.event`           | A verified `DartcUiEvent`. Payload: `{ event: DartcUiEvent }`.            |
+| `chat.history`       | Chat history changed (after `stream`/`send`/`clear`/`setHistory`/`MESSAGES_SNAPSHOT`). |
+| `state.changed`      | The state store emitted a new snapshot.                                   |
+
+## Subscription pattern
+
+```ts
+const off = runtime.events.on("transport.ready", (event) => {
+  console.log("transport:", event.transport);
+});
+
+// Later:
+off();
+```
+
+`on` returns an unsubscribe function. `once` auto-unsubscribes after
+the first matching event.
+
+## Browser-event bridge
+
+The `FallbackTransport` republishes every UI event as a browser
+`CustomEvent` on `window`:
+
+```ts
+window.addEventListener("gemmapod:ui-event", (e) => {
+  console.log(e.detail); // DartcUiEvent
+});
+```
+
+This is for compatibility with hosts that can't easily attach to the
+runtime's typed bus (legacy widgets, iframes, dev tooling). Subscribe to
+`runtime.events` in normal use.
+
+## Emit your own
+
+`emit` is exposed for adapters and tests. Production code should never
+emit `runtime.*` or `transport.*` events — those come from the runtime
+itself. Custom events should ride `ui.event` with `type: "CUSTOM"` or
+add their own bus on top.
+
+## See also
+
+- [DARTC UI events reference](/docs/reference/dartc/ui-events)
+- [Custom UI driven by events](/docs/guides/custom-ui-with-events)

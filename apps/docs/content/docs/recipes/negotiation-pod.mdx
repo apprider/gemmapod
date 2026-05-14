@@ -1,0 +1,89 @@
+---
+title: Negotiation pod
+description: A pod that goes places for you, with a signed allow-list of what it can agree to.
+---
+
+The thesis: instead of filling out a form, your agent goes to the other
+party's site and makes the deal. The pod carries your persona + a
+**signed allow-list of terms** you're willing to accept. The other side
+agrees through the same chat surface; the audit log lives in the
+origin's signed `gemmapod.ui.event` stream.
+
+This is the most speculative recipe in the catalogue — it requires
+infrastructure that doesn't fully exist yet, primarily for the
+counterparty side. Treat as a sketch.
+
+## Shape
+
+```toml
+name = "raj-negotiator"
+persona = "Raj's negotiation agent for SaaS contract terms."
+model = "gemma4:31b"            # heavier model for deeper reasoning
+
+system_prompt = """
+You negotiate on Raj's behalf. Your constraints (HARD LIMITS):
+  - Never agree to non-compete clauses longer than 12 months.
+  - Pricing must stay above $9000 / month for >50 seats.
+  - Always call `propose_terms` to record any agreed amendment.
+  - On disagreement, call `flag_for_review` so Raj can step in.
+
+Be professional, concise, and explicit. Do not summarise — restate the
+exact terms when confirming.
+"""
+
+[transport]
+preferred = ["webrtc"]
+
+[transport.webrtc]
+signal_url = "wss://negotiator.example.com/signal"
+pod_id = "raj-negotiator-q2"
+
+[[tools]]
+name = "propose_terms"
+description = "Record proposed terms in the negotiation ledger. Args: { amendment: string, agreed_by_party: 'them' | 'us' }"
+
+[[tools]]
+name = "flag_for_review"
+description = "Pause the negotiation and notify Raj. Args: { reason: string, sticky_point: object }"
+```
+
+## Why this works (when it does)
+
+- The system prompt's **hard limits** are signed. Both sides can verify
+  they were the limits the owner committed to.
+- The tool allow-list is signed. The pod can record amendments but
+  can't, say, transfer money or sign documents — those tools aren't on
+  the list.
+- The full event log (`gemmapod.ui.event` envelopes including every
+  `propose_terms` call) is preserved on the owner's origin daemon for
+  audit.
+
+## Why this is hard (today)
+
+- **Counterparty trust.** The other party needs to trust that this pod
+  is what it says it is. Verifying signatures is one piece; the social
+  layer ("yes, this pubkey is Raj's company") is currently out of band.
+- **Tool implementations.** `propose_terms` needs to write to a shared
+  ledger both parties accept. Building that ledger isn't in v0.1.
+- **Model reliability.** Negotiation requires accurate constraint
+  enforcement — push the wrong button at the wrong moment and you've
+  agreed to something you didn't want. Heavy mode (`gemma4:31b`)
+  helps; doesn't make it safe.
+
+## What you can build today
+
+A scoped subset:
+
+- Persona + system prompt with hard constraints (works now).
+- A "request a counter-offer" tool that emails Raj (works now).
+- A read-only audit log via `gemmapod.ui.event` on the origin daemon
+  (works now).
+
+The pod becomes an **opinionated counter-offer assistant** rather than
+a fully autonomous negotiator. That's the v0.1 sweet spot.
+
+## See also
+
+- [Add a tool](/docs/guides/add-a-tool)
+- [Why portable agents](/docs/introduction/why-portable-agents)
+- [Security model](/docs/protocol/security-model)

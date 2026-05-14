@@ -1,0 +1,4 @@
+{
+  "title": "gemmapod CLI",
+  "pages": ["init", "keygen", "doctor", "build"]
+}

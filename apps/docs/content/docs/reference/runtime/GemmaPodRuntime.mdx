@@ -1,0 +1,109 @@
+---
+title: GemmaPodRuntime
+description: The runtime handle returned by mount / mountPod / create / boot.
+---
+
+## Type
+
+```ts
+interface GemmaPodRuntime {
+  readonly id: string;
+  readonly podId: string;
+  readonly conversationId: string;
+  readonly manifest: PodConfig;
+  readonly transport: RuntimeTransportState;
+  readonly capabilities: RuntimeCapabilityRegistry;
+  readonly events: RuntimeEventBus;
+  readonly state: RuntimeStateStore;
+  readonly chat: RuntimeChatApi;
+  readonly a2a: RuntimeA2AApi;
+
+  connect(): Promise<void>;
+  mount(target: HTMLElement | null): Promise<void>;
+  destroy(): Promise<void>;
+  getTransport(): Transport | null;
+}
+```
+
+## Properties
+
+| Field             | Description                                                       |
+| ----------------- | ----------------------------------------------------------------- |
+| `id`              | Unique runtime instance id. Stable for the lifetime of this runtime. |
+| `podId`           | The pod id from the verified manifest (`name`, or `transport.webrtc.podId` if set). |
+| `conversationId`  | Stable durable id for this thread. Persists across browser refreshes via `localStorage`. |
+| `manifest`        | The resolved `PodConfig` the runtime is using. Packed pods construct this from a verified signed manifest in `boot.ts`; embedders that call `mountPod`/`create` directly supply their own. |
+| `transport`       | Live transport state — `status`, `name`, `trace` of failed transports, `webrtcEvents` stages. |
+| `capabilities`    | [`RuntimeCapabilityRegistry`](/docs/reference/runtime/Capabilities) — has/list/grant/revoke. |
+| `events`          | [`RuntimeEventBus`](/docs/reference/runtime/RuntimeEventBus) — typed on/once/emit. |
+| `state`           | [`RuntimeStateStore`](/docs/reference/runtime/RuntimeStateStore) — get/set/replace/apply/subscribe. |
+| `chat`            | [`RuntimeChatApi`](/docs/reference/runtime/RuntimeChatApi) — stream/send/history/setHistory/clear. |
+| `a2a`             | `{ card?: A2AAgentCard }` — populated after the origin sends `a2a.discovery`. |
+
+## Methods
+
+### `connect()`
+
+Open the configured transport. Idempotent — subsequent calls return the
+same in-flight promise. Throws if no transport is available.
+
+Embedders rarely call this directly; `chat.stream` and `chat.send`
+auto-connect on first use.
+
+### `mount(target: HTMLElement | null)`
+
+Render the runtime's UI into `target`.
+
+- **Full shim**: renders the Preact chat widget.
+- **Runtime-only shim**: no-op (logs a warning, suggests
+  `mountPod(..., { ui: "none" })`).
+
+`mountPod` calls this for you. Use the lower-level `create()` +
+`mount()` pair when you want explicit control.
+
+### `destroy()`
+
+Tear down the runtime: closes the transport, unmounts the chat widget
+(if any), removes the fallback panel (if any), emits a final
+`runtime.destroyed` event.
+
+After `destroy()` the runtime is unusable; create a new one to reconnect.
+
+### `getTransport()`
+
+Returns the active `Transport` instance (`webrtc` / `fallback` /
+`direct`), or `null` before `connect()` resolves. Most embedders should
+use `runtime.transport.status` instead; `getTransport()` is for advanced
+flows that need direct access (e.g., calling
+`FallbackTransport.prepare()` from a custom prepare UI).
+
+## Lifecycle
+
+1. **Construct** — `GemmaPod.create(config)` or `mountPod(...)`.
+2. **Connect** — first `chat` call OR explicit `connect()`. The transport
+   selector tries `webrtc` → `fallback` → `direct` in order.
+3. **Ready** — `transport.ready` event fires. The runtime begins
+   verifying and routing DARTC envelopes.
+4. **Chat / state / tool events** — driven by the model + your input.
+5. **Destroy** — closes peer + emits `runtime.destroyed`.
+
+## Tiny example
+
+```ts
+const { runtime } = await GemmaPod.mountPod(el, config);
+
+runtime.events.on("transport.ready", (e) =>
+  console.log("ready via", e.transport),
+);
+runtime.events.on("ui.event", ({ event }) => console.log(event.type));
+
+for await (const chunk of runtime.chat.stream("hello")) {
+  if (chunk.done) break;
+}
+```
+
+## See also
+
+- [`mountPod`](/docs/reference/runtime/mountPod)
+- [`RuntimeEventBus`](/docs/reference/runtime/RuntimeEventBus)
+- [Runtime spec](/docs/protocol/runtime-spec)

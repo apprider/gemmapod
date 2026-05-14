@@ -1,0 +1,26 @@
+{
+  "name": "@gemmapod/example-nextjs-embed",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Next.js App Router page that mounts a GemmaPod via the script-tag IIFE and a client component.",
+  "scripts": {
+    "predev": "node scripts/copy-shim.mjs",
+    "prebuild": "node scripts/copy-shim.mjs",
+    "dev": "next dev --port 3001",
+    "build": "next build",
+    "start": "next start --port 3001"
+  },
+  "dependencies": {
+    "@gemmapod/browser": "workspace:*",
+    "next": "^15.1.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "typescript": "^5.7.2"
+  }
+}

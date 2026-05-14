@@ -1,0 +1,41 @@
+---
+title: gemmapod init
+description: Scaffold a new pod project (pod.toml, .gitignore, embed-example.html).
+---
+
+## Synopsis
+
+```sh
+gemmapod init --dir <path>
+```
+
+## Description
+
+Creates a new GemmaPod project directory with:
+
+- `pod.toml` — manifest with reasonable defaults
+- `.gitignore` — excludes `owner.key` and `dist/`
+- `embed-example.html` — template page demonstrating how to embed the
+  built pod
+
+## Options
+
+| Flag           | Default       | Meaning                              |
+| -------------- | ------------- | ------------------------------------ |
+| `--dir <path>` | _(required)_  | Target directory. Will be created if it doesn't exist. |
+
+## Example
+
+```sh
+gemmapod init --dir ./my-pod
+# Initialized GemmaPod project in /Users/raj/my-pod
+#   /Users/raj/my-pod/pod.toml
+#   /Users/raj/my-pod/.gitignore
+#   /Users/raj/my-pod/embed-example.html
+```
+
+## See also
+
+- [`gemmapod keygen`](/docs/reference/cli/keygen)
+- [`pod.toml` reference](/docs/reference/pod-manifest/pod-toml)
+- [Build your first pod](/docs/quickstart/first-pod-cli)

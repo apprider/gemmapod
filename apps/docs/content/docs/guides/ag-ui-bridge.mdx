@@ -1,0 +1,95 @@
+---
+title: AG-UI bridge
+description: One mapper function. SCREAMING_SNAKE in, PascalCase out.
+---
+
+## TL;DR
+
+```ts
+import "@gemmapod/browser/runtime"; // side-effects window.GemmaPod
+// or load the IIFE via <script>
+
+runtime.events.on("ui.event", ({ event }) => {
+  const agui = GemmaPod.mapDartcUiEventToAgUi(event);
+  // agui.type is PascalCase now. Payload fields unchanged.
+});
+```
+
+That's the whole bridge.
+
+## Why a mapper instead of native support
+
+Two decisions baked into GemmaPod that AG-UI hosts care about:
+
+1. **Field names match AG-UI on purpose.** `threadId`, `runId`,
+   `messageId`, `toolCallId`, `delta`, `snapshot`, `patch` — every payload
+   field is the same name on the wire. Hosts that already destructure these
+   field names work without changes.
+
+2. **The discriminator differs by design.** DARTC frames are visible in
+   network panels and CI logs; SCREAMING_SNAKE jumps out from
+   surrounding JSON. AG-UI uses PascalCase to fit TypeScript convention.
+   Neither is wrong — they serve different audiences. The mapper bridges
+   the two.
+
+## What the mapper does
+
+```ts
+function mapDartcUiEventToAgUi(event: DartcUiEvent): AgUiEvent;
+```
+
+- Takes a `DartcUiEvent` (the typed event you get on
+  `runtime.events.on("ui.event", …)`).
+- Returns a new object with the `type` rewritten to PascalCase and **all
+  other fields preserved verbatim**.
+- Pure: no allocation beyond the new top-level object, no runtime state,
+  no async.
+- Defensive: unknown DARTC `type` values map to `Raw` — your AG-UI host
+  receives a typed `Raw` event with the original payload nested under
+  `dartc`, rather than a missing field.
+
+## Where to call it
+
+Anywhere. Three useful spots:
+
+### In the event handler
+
+```ts
+runtime.events.on("ui.event", ({ event }) => {
+  host.dispatch(GemmaPod.mapDartcUiEventToAgUi(event));
+});
+```
+
+### In a generic adapter
+
+```ts
+function toAgUi(runtime, host) {
+  return runtime.events.on("ui.event", ({ event }) =>
+    host.dispatch(GemmaPod.mapDartcUiEventToAgUi(event)),
+  );
+}
+```
+
+### In a worker for logging / replay
+
+```ts
+self.onmessage = (e) => {
+  postMessage(GemmaPod.mapDartcUiEventToAgUi(e.data));
+};
+```
+
+## What it doesn't do
+
+- **It doesn't filter or batch events.** If your host expects rate-limited
+  events, you batch.
+- **It doesn't validate.** Send any object with a `type` and you get back
+  an object with a `type`. Validation belongs in the consumer.
+- **It doesn't introspect payloads.** `STATE_DELTA.delta` stays a
+  JSON-Patch operation array; field names match RFC 6902.
+
+## See also
+
+- [Side-by-side example](https://github.com/apprider/gemmapod/tree/main/examples/copilotkit-style)
+- [CopilotKit-style integration guide](/docs/guides/copilotkit-style)
+- [DARTC UI event reference](/docs/reference/dartc/ui-events)
+- [AG-UI event spec](https://docs.ag-ui.com/concepts/events)
