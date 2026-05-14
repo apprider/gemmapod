@@ -79,3 +79,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # CI is the only environment that can generate sigstore provenance
+          # (needs id-token: write + a recognised CI provider). Enable it here
+          # so every CI-published version gets the attestation, while local
+          # `pnpm publish` runs without it.
+          NPM_CONFIG_PROVENANCE: "true"

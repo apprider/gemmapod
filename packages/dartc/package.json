@@ -2,7 +2,7 @@
   "name": "@gemmapod/dartc",
   "version": "0.1.0",
   "type": "module",
-  "description": "DARTC v0.2 — signed, topic-multiplexed envelope for portable AI agents. Carries A2A objects and AG-UI-shaped UI events over WebRTC and (future) WebSocket relays.",
+  "description": "DARTC v0.2 \u2014 signed, topic-multiplexed envelope for portable AI agents. Carries A2A objects and AG-UI-shaped UI events over WebRTC and (future) WebSocket relays.",
   "keywords": [
     "dartc",
     "gemmapod",
@@ -51,7 +51,6 @@
     "typescript": "^5.7.2"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }
