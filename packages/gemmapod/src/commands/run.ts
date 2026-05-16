@@ -76,6 +76,7 @@ export async function cmdRun(dirOrToml: string, opts: { model?: string; dashboar
     signalUrl,
     ollamaUrl: ollama.url,
     model: model!,
+    runningPodDir: resolved.endsWith(".toml") ? path.dirname(resolved) : resolved,
   };
 
   note(

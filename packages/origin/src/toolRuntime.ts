@@ -5,6 +5,17 @@ export interface ManifestTool {
   description: string;
 }
 
+export interface PodEventConfig {
+  name: string;
+  value?: unknown;
+}
+
+export interface PodEventsConfig {
+  on_run_started?: PodEventConfig[];
+  on_run_finished?: PodEventConfig[];
+  enable_tools?: string[];
+}
+
 export interface VerifiedPodManifest {
   v: number;
   id: string;
@@ -17,6 +28,7 @@ export interface VerifiedPodManifest {
     webrtc?: { pod_id?: string };
   };
   tools?: ManifestTool[];
+  events?: PodEventsConfig;
 }
 
 export interface ToolCall {

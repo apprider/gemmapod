@@ -1,5 +1,6 @@
 import { Mastra } from "@mastra/core/mastra";
 import { createPodAgent, type PodAgentConfig } from "./agents/pod-agent.js";
+import type { SendUiEventFn } from "./tools/ui-events.js";
 
 export interface MastraOriginConfig {
   ollamaUrl: string;
@@ -7,12 +8,18 @@ export interface MastraOriginConfig {
   systemPrompt: string;
   manifest: PodAgentConfig["manifest"];
   toolRuntime: PodAgentConfig["toolRuntime"];
+  sendUiEvent?: SendUiEventFn;
 }
 
 let mastraInstance: Mastra | null = null;
 
 export function getMastraInstance(config: MastraOriginConfig): Mastra {
-  if (mastraInstance) return mastraInstance;
+  if (mastraInstance) {
+    console.log(`[mastra] reusing existing instance`);
+    return mastraInstance;
+  }
+
+  console.log(`[mastra] creating new instance: model=${config.model}, ollamaUrl=${config.ollamaUrl}`);
 
   const agent = createPodAgent({
     systemPrompt: config.systemPrompt,
@@ -20,6 +27,7 @@ export function getMastraInstance(config: MastraOriginConfig): Mastra {
     ollamaUrl: config.ollamaUrl,
     manifest: config.manifest,
     toolRuntime: config.toolRuntime,
+    sendUiEvent: config.sendUiEvent,
   });
 
   mastraInstance = new Mastra({

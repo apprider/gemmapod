@@ -88,6 +88,8 @@ export interface DaemonConfig {
   ownerPubkey?: string;
   contactJson?: string;
   dbPath?: string;
+  /** Directory containing the pod.toml being served */
+  runningPodDir?: string;
 }
 
 interface DaemonState {
@@ -151,6 +153,21 @@ async function handleChat(
       input: { model: modelToUse, messages: incomingMessages },
     }, { stream: true });
 
+    // Auto-emit manifest lifecycle events (on_run_started)
+    const manifestEvents = toolRuntime.manifest?.events;
+    if (manifestEvents?.on_run_started) {
+      for (const ev of manifestEvents.on_run_started) {
+        await session.sendUiEvent({
+          type: "CUSTOM",
+          threadId: conversationId,
+          runId,
+          name: ev.name,
+          value: ev.value,
+        }, { stream: true });
+      }
+    }
+
+    // Default companion/presentation events (backward compatible)
     await sendCompanionEvent(session, conversationId, runId, "companion.react", {
       mood: "thinking",
       stage: "center",
@@ -176,12 +193,18 @@ async function handleChat(
     // ── Mastra-powered agent streaming ──
     const systemPrompt = toolRuntime.manifest?.system_prompt ?? "You are a helpful assistant.";
 
+    // Create a sendUiEvent wrapper bound to this session for the agent's UI event tools
+    const sendUiEventForAgent = async (event: DartcUiEvent) => {
+      await session.sendUiEvent(event, { stream: true });
+    };
+
     const mastra = getMastraInstance({
       ollamaUrl: state.ollamaUrl,
       model: modelToUse,
       systemPrompt,
       manifest: toolRuntime.manifest,
       toolRuntime,
+      sendUiEvent: sendUiEventForAgent,
     });
 
     const agent = mastra.getAgent("gemmapod-agent");
@@ -192,100 +215,115 @@ async function handleChat(
       content: m.content,
     }));
 
+    console.log(`[origin] calling agent.stream() with ${mastraMessages.length} messages`);
     const response = await agent.stream(mastraMessages);
+    console.log(`[origin] agent.stream() returned, keys: ${Object.keys(response).join(", ")}`);
 
     let assistantContent = "";
     let chunkCount = 0;
 
-    // Consume the full stream
-    const reader = response.fullStream.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        // Handle different chunk types
-        if (value && typeof value === "object") {
-          const chunk = value as any;
-
-          if (chunk.type === "text-delta" && chunk.textDelta) {
+    // ── Strategy 1: try textStream (simplest text-only stream) ──
+    if (response.textStream) {
+      console.log(`[origin] using textStream for reading`);
+      const textReader = response.textStream.getReader();
+      try {
+        while (true) {
+          const { done, value } = await textReader.read();
+          if (done) break;
+          if (value) {
             chunkCount++;
-            const delta = chunk.textDelta;
-            assistantContent += delta;
-
-            if (chunkCount === 1) {
-              console.log(`[origin] first content chunk received: ${JSON.stringify(delta)}`);
-              await sendCompanionEvent(session, conversationId, runId, "companion.react", {
-                mood: "presenting",
-                stage: "presenting-left",
-                expression: "talking",
-                text: "Response is streaming into the page.",
-              }, { stream: true, chunk_id: chunkCount, is_final: false });
-            }
-
-            await session.sendUiEvent({
-              type: "TEXT_MESSAGE_CONTENT",
-              threadId: conversationId,
-              runId,
-              messageId,
-              delta,
-            }, {
-              stream: true,
-              chunk_id: chunkCount,
-              is_final: false,
-            });
-
-            await session.sendDartc<GemmaPodChatDelta>("gemmapod.chat.delta", {
-              request_id: runId,
-              delta,
-            }, {
-              stream: true,
-              chunk_id: chunkCount,
-              is_final: false,
-            });
-          } else if (chunk.type === "tool-call") {
-            console.log(`[origin] tool call: ${chunk.toolName}`);
-            pushEvent({
-              id: `tool-${chunk.toolCallId}`,
-              type: "tool_call",
-              content: `Calling tool: ${chunk.toolName}`,
-              timestamp: Date.now(),
-              metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId, conversationId, runId },
-            });
-            await session.sendUiEvent({
-              type: "TOOL_CALL_START",
-              threadId: conversationId,
-              runId,
-              toolCallId: chunk.toolCallId,
-              toolCallName: chunk.toolName,
-              parentMessageId: messageId,
-            }, { stream: true });
-          } else if (chunk.type === "tool-result") {
-            const resultStr = typeof chunk.result === "string" ? chunk.result : JSON.stringify(chunk.result);
-            pushEvent({
-              id: `result-${chunk.toolCallId}`,
-              type: "tool_result",
-              content: resultStr,
-              timestamp: Date.now(),
-              metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId, conversationId, runId },
-            });
-            await session.sendUiEvent({
-              type: "TOOL_CALL_RESULT",
-              threadId: conversationId,
-              runId,
-              messageId: `${runId}:tool:${chunk.toolCallId}`,
-              toolCallId: chunk.toolCallId,
-              role: "tool",
-              content: resultStr,
-            }, { stream: true });
+            assistantContent += value;
+            await streamDelta(session, conversationId, runId, messageId, value, chunkCount);
           }
         }
+      } finally {
+        textReader.releaseLock();
       }
-    } finally {
-      reader.releaseLock();
     }
 
-    console.log(`[origin] chat done (chunks: ${chunkCount})`);
+    // ── Strategy 2: fallback to fullStream if textStream yielded nothing ──
+    if (chunkCount === 0 && response.fullStream) {
+      console.log(`[origin] textStream empty, falling back to fullStream`);
+      const reader = response.fullStream.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          if (value && typeof value === "object") {
+            const chunk = value as any;
+            console.log(`[origin] fullStream chunk type=${chunk.type}`);
+
+            if (chunk.type === "text-delta" && chunk.textDelta) {
+              chunkCount++;
+              assistantContent += chunk.textDelta;
+              await streamDelta(session, conversationId, runId, messageId, chunk.textDelta, chunkCount);
+            } else if (chunk.type === "tool-call") {
+              console.log(`[origin] tool call: ${chunk.toolName}`);
+              pushEvent({
+                id: `tool-${chunk.toolCallId}`,
+                type: "tool_call",
+                content: `Calling tool: ${chunk.toolName}`,
+                timestamp: Date.now(),
+                metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId, conversationId, runId },
+              });
+              await session.sendUiEvent({
+                type: "TOOL_CALL_START",
+                threadId: conversationId,
+                runId,
+                toolCallId: chunk.toolCallId,
+                toolCallName: chunk.toolName,
+                parentMessageId: messageId,
+              }, { stream: true });
+            } else if (chunk.type === "tool-result") {
+              const resultStr = typeof chunk.result === "string" ? chunk.result : JSON.stringify(chunk.result);
+              pushEvent({
+                id: `result-${chunk.toolCallId}`,
+                type: "tool_result",
+                content: resultStr,
+                timestamp: Date.now(),
+                metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId, conversationId, runId },
+              });
+              await session.sendUiEvent({
+                type: "TOOL_CALL_RESULT",
+                threadId: conversationId,
+                runId,
+                messageId: `${runId}:tool:${chunk.toolCallId}`,
+                toolCallId: chunk.toolCallId,
+                role: "tool",
+                content: resultStr,
+              }, { stream: true });
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+
+    // ── Strategy 3: fallback to response.text promise ──
+    if (chunkCount === 0 && response.text) {
+      console.log(`[origin] streams empty, falling back to response.text promise`);
+      try {
+        const fullText = await response.text;
+        if (fullText) {
+          chunkCount = 1;
+          assistantContent = fullText;
+          await streamDelta(session, conversationId, runId, messageId, fullText, 1);
+          console.log(`[origin] response.text resolved to ${fullText.length} chars`);
+        } else {
+          console.warn(`[origin] response.text resolved to empty string`);
+        }
+      } catch (e) {
+        console.error(`[origin] response.text rejected:`, e);
+      }
+    }
+
+    console.log(`[origin] chat done (chunks: ${chunkCount}, content length: ${assistantContent.length})`);
+
+    if (chunkCount === 0) {
+      console.warn(`[origin] WARNING: zero chunks received from model. All streaming strategies failed.`);
+    }
 
     // ── UI: finalize ──
     await sendCompanionEvent(session, conversationId, runId, "presentation.show", {
@@ -321,6 +359,19 @@ async function handleChat(
       is_final: true,
     });
 
+    // Auto-emit manifest lifecycle events (on_run_finished)
+    if (manifestEvents?.on_run_finished) {
+      for (const ev of manifestEvents.on_run_finished) {
+        await session.sendUiEvent({
+          type: "CUSTOM",
+          threadId: conversationId,
+          runId,
+          name: ev.name,
+          value: ev.value,
+        }, { stream: true, is_final: true });
+      }
+    }
+
     // ── Persist conversation ──
     if (memoryKey) {
       state.conversations.set(memoryKey, {
@@ -344,6 +395,10 @@ async function handleChat(
     state.dashboard.status = "idle";
   } catch (e) {
     console.error(`[origin] mastra agent failed:`, e);
+    if (e instanceof Error) {
+      console.error(`[origin] error name: ${e.name}, message: ${e.message}`);
+      console.error(`[origin] error stack: ${e.stack}`);
+    }
     state.dashboard.status = "error";
     state.dashboard.lastError = (e as Error).message;
     pushEvent({
@@ -388,6 +443,46 @@ async function sendCompanionEvent(
     name,
     value,
   }, dartc);
+}
+
+async function streamDelta(
+  session: DartcPeerSession,
+  conversationId: string,
+  runId: string,
+  messageId: string,
+  delta: string,
+  chunkCount: number,
+): Promise<void> {
+  if (chunkCount === 1) {
+    console.log(`[origin] first content chunk: ${JSON.stringify(delta.slice(0, 80))}`);
+    await sendCompanionEvent(session, conversationId, runId, "companion.react", {
+      mood: "presenting",
+      stage: "presenting-left",
+      expression: "talking",
+      text: "Response is streaming into the page.",
+    }, { stream: true, chunk_id: chunkCount, is_final: false });
+  }
+
+  await session.sendUiEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    threadId: conversationId,
+    runId,
+    messageId,
+    delta,
+  }, {
+    stream: true,
+    chunk_id: chunkCount,
+    is_final: false,
+  });
+
+  await session.sendDartc<GemmaPodChatDelta>("gemmapod.chat.delta", {
+    request_id: runId,
+    delta,
+  }, {
+    stream: true,
+    chunk_id: chunkCount,
+    is_final: false,
+  });
 }
 
 function latestUserPrompt(messages: Array<{ role: string; content: string }>): string {
@@ -774,6 +869,7 @@ export async function startDaemon(config: DaemonConfig): Promise<string | undefi
     activePeerCount: 0,
     totalMessages: 0,
     status: "idle",
+    runningPodDir: config.runningPodDir,
   };
 
   const state: DaemonState = {

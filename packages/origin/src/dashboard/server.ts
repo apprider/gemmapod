@@ -17,6 +17,8 @@ export interface DashboardState {
   totalMessages: number;
   status: "idle" | "running" | "error";
   lastError?: string;
+  /** Directory of the currently running pod (so we can scan its siblings) */
+  runningPodDir?: string;
 }
 
 export interface ChatEvent {
@@ -134,12 +136,13 @@ export function createDashboardServer(state: DashboardState): {
 
   async function scanPods(): Promise<LocalPod[]> {
     const pods: LocalPod[] = [];
-    const cwd = process.cwd();
+    // Scan the running pod's directory (or cwd as fallback)
+    const baseDir = state.runningPodDir ? path.dirname(state.runningPodDir) : process.cwd();
     try {
-      const entries = await readdir(cwd, { withFileTypes: true });
+      const entries = await readdir(baseDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        const dir = path.join(cwd, entry.name);
+        const dir = path.join(baseDir, entry.name);
         const tomlPath = path.join(dir, "pod.toml");
         const htmlPath = path.join(dir, "agent.html");
         try {
@@ -151,13 +154,17 @@ export function createDashboardServer(state: DashboardState): {
             transport?: { webrtc?: { signal_url?: string; pod_id?: string } };
           };
           const stats = await stat(htmlPath).catch(() => null);
+          const podId = raw.transport?.webrtc?.pod_id ?? raw.id ?? entry.name;
+          const isRunning =
+            state.runningPodDir === dir ||
+            state.podId === podId;
           pods.push({
-            id: raw.transport?.webrtc?.pod_id ?? raw.id ?? entry.name,
+            id: podId,
             name: raw.name ?? entry.name,
             dir,
             model: raw.model ?? "gemma4:e4b",
             signalUrl: raw.transport?.webrtc?.signal_url ?? "https://signal.gemmapod.com/signal",
-            status: "stopped",
+            status: isRunning ? "running" : "stopped",
             sizeKB: stats ? (stats.size / 1024).toFixed(1) : undefined,
             createdAt: stats?.mtimeMs ?? undefined,
           });
@@ -166,7 +173,7 @@ export function createDashboardServer(state: DashboardState): {
         }
       }
     } catch {
-      // cwd unreadable
+      // baseDir unreadable
     }
     return pods;
   }
