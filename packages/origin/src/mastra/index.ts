@@ -9,6 +9,8 @@ export interface MastraOriginConfig {
   manifest: PodAgentConfig["manifest"];
   toolRuntime: PodAgentConfig["toolRuntime"];
   sendUiEvent?: SendUiEventFn;
+  /** Optional extra UI tools to register (e.g. buildCompanionTools). */
+  uiTools?: Record<string, any>;
 }
 
 let mastraInstance: Mastra | null = null;
@@ -28,6 +30,7 @@ export function getMastraInstance(config: MastraOriginConfig): Mastra {
     manifest: config.manifest,
     toolRuntime: config.toolRuntime,
     sendUiEvent: config.sendUiEvent,
+    uiTools: config.uiTools,
   });
 
   mastraInstance = new Mastra({

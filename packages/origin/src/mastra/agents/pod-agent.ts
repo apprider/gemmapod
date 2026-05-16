@@ -1,6 +1,6 @@
 import { Agent } from "@mastra/core/agent";
 import type { Mastra } from "@mastra/core/mastra";
-import { shareContactTool, showProjectTool, packageDemoPodTool, buildManifestTools, buildUiEventTools } from "../tools/index.js";
+import { shareContactTool, showProjectTool, packageDemoPodTool, buildManifestTools, buildUiEventTools, buildCompanionTools } from "../tools/index.js";
 import type { VerifiedPodManifest } from "../../toolRuntime.js";
 import type { ToolRuntime } from "../../toolRuntime.js";
 import type { SendUiEventFn } from "../tools/ui-events.js";
@@ -12,6 +12,8 @@ export interface PodAgentConfig {
   manifest: VerifiedPodManifest | null;
   toolRuntime: ToolRuntime;
   sendUiEvent?: SendUiEventFn;
+  /** Optional extra UI tools to register (e.g. buildCompanionTools). */
+  uiTools?: Record<string, any>;
 }
 
 export function createPodAgent(config: PodAgentConfig): Agent {
@@ -25,11 +27,14 @@ export function createPodAgent(config: PodAgentConfig): Agent {
   // Build manifest-signed tools
   const manifestTools = buildManifestTools(config.manifest, config.toolRuntime);
 
-  // Build UI event tools (if sendUiEvent is provided)
-  const uiEventTools = config.sendUiEvent ? buildUiEventTools(config.sendUiEvent) : {};
+  // Build generic UI event tools (if sendUiEvent is provided)
+  const genericUiTools = config.sendUiEvent ? buildUiEventTools(config.sendUiEvent) : {};
+
+  // Merge host-provided UI tools (e.g. companion tools) with generic ones
+  const uiTools = { ...genericUiTools, ...(config.uiTools ?? {}) };
 
   // Combine all tools
-  const allTools = { ...localTools, ...manifestTools, ...uiEventTools };
+  const allTools = { ...localTools, ...manifestTools, ...uiTools };
 
   const modelConfig = {
     id: `ollama/${config.model}`,
@@ -40,15 +45,29 @@ export function createPodAgent(config: PodAgentConfig): Agent {
   // Inject event capabilities guide into system prompt if UI tools are available
   let instructions = config.systemPrompt;
   if (config.sendUiEvent) {
+    const availableToolNames = Object.keys(uiTools);
+    const toolDescriptions = availableToolNames.map((name) => {
+      switch (name) {
+        case "show_presentation":
+          return "- show_presentation(title, body?, items?, status?) — shows a visual presentation card beside the chat";
+        case "react_companion":
+          return "- react_companion(mood?, stage?, expression?, text?) — updates the 3D avatar's mood, position, expression, and speech";
+        case "say_companion":
+          return "- say_companion(text) — makes the avatar speak a short line";
+        case "set_state":
+          return "- set_state(mode, data) — pushes structured state (snapshot or JSON Patch delta) to the visitor's page";
+        case "send_custom_event":
+          return "- send_custom_event(name, value?) — sends any custom app-specific event";
+        default:
+          return `- ${name} — custom UI tool`;
+      }
+    }).join("\n");
+
     const eventGuide = `
 
 ---
 Event Capabilities: You can enrich the visitor experience by calling these tools:
-- show_presentation(title, body?, items?, status?) — shows a visual presentation card beside the chat
-- react_companion(mood?, stage?, expression?, text?) — updates the 3D avatar's mood, position, expression, and speech
-- say_companion(text) — makes the avatar speak a short line
-- set_state(mode, data) — pushes structured state (snapshot or JSON Patch delta) to the visitor's page
-- send_custom_event(name, value?) — sends any custom app-specific event
+${toolDescriptions}
 Use these tools proactively to make responses feel alive and interactive.`;
     instructions = instructions + eventGuide;
   }

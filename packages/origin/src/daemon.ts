@@ -33,6 +33,7 @@ import { createRequire } from "node:module";
 import { buildToolRuntime, type VerifiedPodManifest } from "./toolRuntime.js";
 import { ConversationStore } from "./conversationStore.js";
 import { getMastraInstance } from "./mastra/index.js";
+import { buildCompanionTools } from "./mastra/tools/index.js";
 import { createDashboardServer, pushEvent, type DashboardState } from "./dashboard/server.js";
 
 type SignalMsg =
@@ -205,6 +206,7 @@ async function handleChat(
       manifest: toolRuntime.manifest,
       toolRuntime,
       sendUiEvent: sendUiEventForAgent,
+      uiTools: buildCompanionTools(sendUiEventForAgent),
     });
 
     const agent = mastra.getAgent("gemmapod-agent");
