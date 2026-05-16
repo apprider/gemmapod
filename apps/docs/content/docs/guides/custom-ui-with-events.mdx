@@ -106,9 +106,18 @@ that reacts to model state. It's driven entirely by `CUSTOM` events:
 No new DARTC topics. No parallel websocket. Each `CUSTOM` event is a
 signed DARTC envelope on the same channel as the chat itself.
 
+These events are emitted by **UI tools** registered in the origin daemon.
+Origin ships generic tools (`show_presentation`, `set_state`, `send_custom_event`)
+that work for any host. Companion-specific tools (`react_companion`, `say_companion`)
+are opt-in — hosts without a 3D avatar don't need them.
+
+See [UI tools and companion plugins](/docs/guides/ui-tools-and-companion) for how
+to register, omit, or build your own UI tools.
+
 ## See also
 
 - [Restaurant pod example](https://github.com/apprider/gemmapod/tree/main/examples/restaurant-pod) — full `STATE_SNAPSHOT` cart demo
+- [UI tools and companion plugins](/docs/guides/ui-tools-and-companion)
 - [State + snapshots guide](/docs/guides/state-and-snapshots)
 - [AG-UI bridge guide](/docs/guides/ag-ui-bridge)
 - [DARTC UI events reference](/docs/reference/dartc/ui-events)

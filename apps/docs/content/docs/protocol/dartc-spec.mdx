@@ -443,6 +443,10 @@ Examples:
   `TEXT_MESSAGE_*` to stream the answer.
 - gemmapod.com hero: `CUSTOM name="companion.react"` / `presentation.show` to
   drive the 3D companion + slide alongside chat without inventing a new topic.
+  These events are emitted by **UI tools** registered in the origin daemon.
+  Generic tools (`show_presentation`, `set_state`, `send_custom_event`) work
+  for any host; companion-specific tools (`react_companion`, `say_companion`) are
+  opt-in. See [UI tools and companion plugins](/docs/guides/ui-tools-and-companion).
 
 ### Runtime ingestion (browser shim)
 

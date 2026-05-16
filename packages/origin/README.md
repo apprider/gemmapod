@@ -177,6 +177,30 @@ The built-in local tools are:
 | `show_project`     | Returns a short project summary. |
 | `package_demo_pod` | Returns instructions for building/deploying a demo pod. |
 
+### UI event tools (host-provided)
+
+Origin also ships **UI event tools** that emit DARTC `CUSTOM` events to
+drive the visitor's UI. These are registered by the host, not declared in
+the manifest:
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Generic** (auto-registered) | `show_presentation`, `set_state`, `send_custom_event` | Work for any host |
+| **Companion** (opt-in) | `react_companion`, `say_companion` | For hosts with a 3D avatar |
+
+Generic tools are auto-registered when you provide a `sendUiEvent` callback.
+Companion tools must be passed explicitly via `uiTools: buildCompanionTools(...)`.
+
+```ts
+import { getMastraInstance, buildCompanionTools } from "@gemmapod/origin";
+
+const mastra = getMastraInstance({
+  // ...
+  sendUiEvent: mySendUiEvent,
+  uiTools: buildCompanionTools(mySendUiEvent), // opt-in
+});
+```
+
 Unsigned widget mounts still work, but they do not expose tools. A tool
 call is rejected unless the name is both signed into the manifest and
 implemented locally by the origin daemon.

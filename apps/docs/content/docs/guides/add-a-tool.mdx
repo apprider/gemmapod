@@ -96,6 +96,27 @@ A future release will expose this as a registration API
 (`origin.registerTool(name, fn)`) so you don't fork the package. For
 v0.1, fork or wrap.
 
+## UI tools are separate from manifest tools
+
+Manifest tools (like `open_ticket` above) are **signed** — they must be
+declared in `pod.toml` and verified at runtime. UI tools are **not signed**;
+they are registered by the host at agent creation time and drive the visitor's
+UI through DARTC events.
+
+Origin ships two categories of UI tools:
+
+| Category | Tools | Registration |
+|----------|-------|-------------|
+| Generic | `show_presentation`, `set_state`, `send_custom_event` | Auto-registered when `sendUiEvent` is provided |
+| Companion-specific | `react_companion`, `say_companion` | Opt-in via `uiTools: buildCompanionTools(...)` |
+
+If you're building a host without a 3D avatar, you don't need companion
+tools. If you're building a custom dashboard, you can add your own UI tools
+that emit `CUSTOM` events your host understands.
+
+See [UI tools and companion plugins](/docs/guides/ui-tools-and-companion) for
+the full pattern.
+
 ## Step 3. Run with `OWNER_PUBKEY` set (production)
 
 In production, set `OWNER_PUBKEY` so the origin only accepts manifests

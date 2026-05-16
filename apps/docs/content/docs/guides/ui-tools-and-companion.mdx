@@ -1,0 +1,139 @@
+---
+title: UI tools and companion plugins
+description: Origin ships generic UI tools. Hosts opt into companion-specific tools or bring their own.
+---
+
+Origin's agent can drive the visitor's UI through **UI event tools** — Mastra tools that emit DARTC `CUSTOM` events over the active peer session. There are two categories:
+
+| Category | Tools | Who should use them |
+|----------|-------|---------------------|
+| **Generic** | `show_presentation`, `set_state`, `send_custom_event` | Every host |
+| **Companion-specific** | `react_companion`, `say_companion` | Hosts with a 3D avatar |
+
+## Generic UI tools (always available)
+
+When you provide a `sendUiEvent` callback to `createPodAgent` or `getMastraInstance`, origin automatically registers three generic tools:
+
+### `show_presentation(title, body?, items?, status?)`
+Emits `CUSTOM name="presentation.show"` with a title, optional body, bullet items, and a status (`working` | `ready`).
+
+### `set_state(mode, data)`
+Emits `STATE_SNAPSHOT` or `STATE_DELTA` (RFC 6902 JSON Patch). The runtime auto-applies these to `runtime.state`.
+
+### `send_custom_event(name, value?)`
+Emits `CUSTOM` with any name and JSON-serializable payload. This is the escape hatch for host-specific UI updates.
+
+## Companion-specific tools (opt-in)
+
+`react_companion` and `say_companion` are **not** registered by default. They assume the host page has a 3D avatar that understands moods (`walking`, `thinking`, `happy`, …), stages (`center`, `peek`, `presenting-left`), and expressions (`neutral`, `happy`, `talking`, …).
+
+If your host has such an avatar, register the companion tools explicitly:
+
+```ts
+import { getMastraInstance, buildCompanionTools } from "@gemmapod/origin";
+
+const mastra = getMastraInstance({
+  ollamaUrl: "http://localhost:11434",
+  model: "llama3.2",
+  systemPrompt: "You are a helpful assistant.",
+  manifest: verifiedManifest,
+  toolRuntime,
+  sendUiEvent: mySendUiEvent,
+  uiTools: buildCompanionTools(mySendUiEvent),
+});
+```
+
+The agent's system prompt will automatically list only the tools that are registered. If you don't pass `uiTools`, the prompt will not mention `react_companion` or `say_companion`.
+
+## Building your own UI tools
+
+You can create custom UI tools that emit any `CUSTOM` event your host understands:
+
+```ts
+import { createTool } from "@mastra/core/tools";
+import { z } from "zod";
+
+function buildMyDashboardTools(sendUiEvent) {
+  return {
+    update_chart: createTool({
+      id: "update_chart",
+      description: "Update a chart on the visitor's dashboard.",
+      inputSchema: z.object({
+        chartId: z.string(),
+        data: z.array(z.record(z.unknown())),
+      }),
+      outputSchema: z.object({ ok: z.boolean() }),
+      execute: async ({ chartId, data }) => {
+        await sendUiEvent({
+          type: "CUSTOM",
+          threadId: "default",
+          name: "dashboard.chart.update",
+          value: { chartId, data },
+        });
+        return { ok: true };
+      },
+    }),
+  };
+}
+
+// Register them alongside generic tools
+const mastra = getMastraInstance({
+  // ...
+  sendUiEvent: mySendUiEvent,
+  uiTools: {
+    ...buildCompanionTools(mySendUiEvent),
+    ...buildMyDashboardTools(mySendUiEvent),
+  },
+});
+```
+
+## How the agent discovers UI tools
+
+The agent's system prompt includes an "Event Capabilities" section that lists every registered UI tool with its signature. This is generated dynamically in `createPodAgent`:
+
+```ts
+const availableToolNames = Object.keys(uiTools);
+const toolDescriptions = availableToolNames.map((name) => {
+  switch (name) {
+    case "show_presentation":
+      return "- show_presentation(title, body?, items?, status?) — shows a visual presentation card";
+    case "react_companion":
+      return "- react_companion(mood?, stage?, expression?, text?) — updates the 3D avatar";
+    // ...
+  }
+});
+```
+
+This means:
+- The LLM only knows about tools you registered.
+- It won't hallucinate `react_companion` on a text-only host.
+- It won't try `update_chart` unless you registered it.
+
+## Backward compatibility
+
+The origin daemon (`daemon.ts`) continues to register `buildCompanionTools` by default, so existing deployments with 3D companions work without changes:
+
+```ts
+// packages/origin/src/daemon.ts
+const mastra = getMastraInstance({
+  // ...
+  uiTools: buildCompanionTools(sendUiEventForAgent),
+});
+```
+
+If you're embedding origin as a library and don't have a 3D companion, simply omit `uiTools`:
+
+```ts
+const mastra = getMastraInstance({
+  // ...
+  sendUiEvent: mySendUiEvent,
+  // No uiTools — only generic tools registered
+});
+```
+
+## See also
+
+- [Custom UI driven by events](/docs/guides/custom-ui-with-events)
+- [State + snapshots guide](/docs/guides/state-and-snapshots)
+- [Add a tool guide](/docs/guides/add-a-tool)
+- [DARTC UI events reference](/docs/reference/dartc/ui-events)
