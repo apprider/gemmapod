@@ -47,7 +47,6 @@ export interface DartcHelloPayload {
 export interface GemmaPodChatRequest {
   request_id: string;
   conversation_id?: string;
-  model?: string;
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
   signedManifestB64?: string;
 }
@@ -218,6 +217,154 @@ export interface A2AAgentCard {
 export interface A2ADiscoveryPayload {
   kind: "AgentCard";
   card: A2AAgentCard;
+}
+
+// GemmaPod extension: DARTC protocol metadata (added to every GemmaPod agent card)
+export interface GemmaPodDartcExtension {
+  uri: "https://gemmapod.com/protocols/dartc";
+  version: "0.2";
+  topics: string[];
+  [key: string]: unknown;
+}
+
+// GemmaPod extension: pod identity and transport (added to origin/pod agent cards only)
+export interface GemmaPodPodExtension {
+  uri: "https://gemmapod.com/extensions/pod";
+  version: "1";
+  pod_id: string;
+  owner_pubkey: string;
+  transport: {
+    preferred: string[];
+    webrtc?: { signal_url: string; pod_id: string };
+    fallback?: { tier?: string };
+  };
+  [key: string]: unknown;
+}
+
+// A well-typed A2AAgentCard for a GemmaPod origin (pod serving inference)
+export interface PodAgentCard extends Omit<A2AAgentCard, "extensions"> {
+  extensions: [GemmaPodDartcExtension, GemmaPodPodExtension, ...Array<Record<string, unknown>>];
+}
+
+// Minimal manifest shape needed to build an agent card (compatible with both
+// Manifest from @gemmapod/pack and VerifiedPodManifest from @gemmapod/origin)
+export interface ManifestInput {
+  id?: string;
+  name: string;
+  persona?: string;
+  model?: string;
+  owner_pubkey?: string;
+  transport?: {
+    preferred?: string[];
+    webrtc?: { signal_url?: string; pod_id?: string };
+    fallback?: { tier?: string };
+  };
+  tools?: Array<{ name: string; description: string }>;
+}
+
+const ORIGIN_DARTC_TOPICS = [
+  "dartc.hello",
+  "a2a.discovery",
+  "gemmapod.chat.request",
+  "gemmapod.ui.event",
+];
+
+const VISITOR_DARTC_TOPICS = [
+  "gemmapod.chat.request",
+  "gemmapod.ui.event",
+  "a2a.discovery",
+];
+
+export function agentCardFromManifest(
+  manifest: ManifestInput,
+  options?: { deployUrl?: string },
+): PodAgentCard {
+  const podId =
+    manifest.transport?.webrtc?.pod_id ?? manifest.id ?? manifest.name;
+  const transport: GemmaPodPodExtension["transport"] = {
+    preferred: manifest.transport?.preferred ?? ["webrtc", "fallback"],
+  };
+  const rtc = manifest.transport?.webrtc;
+  if (rtc?.signal_url && rtc?.pod_id) {
+    transport.webrtc = { signal_url: rtc.signal_url, pod_id: rtc.pod_id };
+  }
+  if (manifest.transport?.fallback?.tier) {
+    transport.fallback = { tier: manifest.transport.fallback.tier };
+  }
+
+  return {
+    protocolVersion: "0.2.2",
+    name: manifest.name,
+    description: manifest.persona ?? `A GemmaPod agent: ${manifest.name}`,
+    ...(options?.deployUrl ? { url: options.deployUrl } : {}),
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      stateTransitionHistory: false,
+    },
+    skills: [
+      {
+        id: "gemmapod-chat",
+        name: "GemmaPod chat",
+        description:
+          "Accepts signed chat requests and returns streamed Gemma 4 model responses over DARTC.",
+        tags: ["gemmapod", "dartc", "webrtc", "gemma", "gemma4"],
+      },
+      ...(manifest.tools ?? []).map((tool) => ({
+        id: `tool:${tool.name}`,
+        name: tool.name,
+        description: tool.description,
+        tags: ["tool", "signed-manifest"],
+      })),
+    ],
+    provider: {
+      organization: "GemmaPod",
+      url: "https://gemmapod.com",
+    },
+    extensions: [
+      {
+        uri: "https://gemmapod.com/protocols/dartc",
+        version: "0.2",
+        topics: ORIGIN_DARTC_TOPICS,
+      },
+      {
+        uri: "https://gemmapod.com/extensions/pod",
+        version: "1",
+        pod_id: podId,
+        owner_pubkey: manifest.owner_pubkey ?? "",
+        transport,
+      },
+    ],
+  };
+}
+
+export function visitorAgentCard(): A2AAgentCard {
+  return {
+    protocolVersion: "0.2.2",
+    name: "GemmaPod browser visitor",
+    description: "A browser session connected to a GemmaPod over DARTC/WebRTC.",
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      stateTransitionHistory: false,
+    },
+    skills: [
+      {
+        id: "gemmapod-chat-client",
+        name: "GemmaPod chat client",
+        description:
+          "Sends signed chat requests and receives streamed Gemma 4 responses over DARTC.",
+        tags: ["dartc", "webrtc", "browser", "gemma4"],
+      },
+    ],
+    extensions: [
+      {
+        uri: "https://gemmapod.com/protocols/dartc",
+        version: "0.2",
+        topics: VISITOR_DARTC_TOPICS,
+      },
+    ],
+  };
 }
 
 export type DartcSigner = (bytes: Uint8Array) => string | Promise<string>;

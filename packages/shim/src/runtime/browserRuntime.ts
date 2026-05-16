@@ -234,7 +234,7 @@ class BrowserGemmaPodRuntime implements GemmaPodRuntime {
 
     const normalized = normalizeChatInput(input, this.historyMessages, this.manifest.model);
     const messages = normalized.messages;
-    const model = normalized.model ?? this.manifest.model;
+    const model = normalized.model || this.manifest.model || "";
     const conversationId = normalized.conversationId ?? this.conversationId;
     for await (const chunk of transport.chat(messages, model, normalized.signal, conversationId)) {
       yield chunk;
@@ -264,18 +264,19 @@ export function isFallbackRuntimeTransport(transport: Transport | null): transpo
 function normalizeChatInput(
   input: string | RuntimeChatInput,
   history: ChatMessage[],
-  model: string,
+  model: string | undefined,
 ): Required<Pick<RuntimeChatInput, "messages" | "model">> &
   Pick<RuntimeChatInput, "conversationId" | "signal" | "metadata"> {
+  const effectiveModel = model ?? "";
   if (typeof input === "string") {
     return {
       messages: [...history, { role: "user", content: input }],
-      model,
+      model: effectiveModel,
     };
   }
   return {
     messages: input.messages ?? (input.text ? [...history, { role: "user", content: input.text }] : history),
-    model: input.model ?? model,
+    model: input.model ?? effectiveModel,
     conversationId: input.conversationId,
     signal: input.signal,
     metadata: input.metadata,

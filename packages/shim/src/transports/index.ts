@@ -3,7 +3,7 @@ import { DirectTransport } from "./direct";
 import { WebRtcTransport, type WebRtcConnectObserver } from "./webrtc";
 import { FallbackTransport } from "./fallback";
 
-export { FallbackTransport, FALLBACK_MODELS } from "./fallback";
+export { FallbackTransport, FALLBACK_MODELS, fetchBrowserModels } from "./fallback";
 export type { CacheInfo, FallbackState, PrepareProgress, FallbackModelOption } from "./fallback";
 
 export interface SelectResult {
@@ -44,7 +44,7 @@ export async function selectTransport(
 
   if (config.transport.fallback && FallbackTransport.supportsWebGPU()) {
     return {
-      transport: new FallbackTransport(config.transport.fallback.model),
+      transport: new FallbackTransport(),
       trace,
     };
   } else if (config.transport.fallback) {

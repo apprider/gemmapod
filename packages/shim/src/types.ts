@@ -4,7 +4,7 @@ export interface PodConfig {
   name: string;
   persona: string;
   systemPrompt: string;
-  model: string;
+  model?: string;
   conversationId?: string;
   transport: TransportConfig;
   tools?: ToolSpec[];
@@ -14,7 +14,7 @@ export interface PodConfig {
 export interface TransportConfig {
   direct?: { baseUrl: string };
   webrtc?: { signalUrl: string; podId: string };
-  fallback?: { model: string; models?: Array<{ id: string; label: string; sizeMB: number }> };
+  fallback?: { tier?: string };
 }
 
 export interface ChatMessage {

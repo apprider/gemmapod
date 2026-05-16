@@ -1,8 +1,8 @@
 {
   "name": "@gemmapod/browser",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "type": "module",
-  "description": "Browser distribution of GemmaPod \u2014 one script tag, window.GemmaPod runtime. Republishes the two @gemmapod/shim IIFEs (full + runtime-only) with stable npm/CDN paths and bundled .d.ts.",
+  "description": "Browser distribution of GemmaPod — one script tag, window.GemmaPod runtime. Republishes the two @gemmapod/shim IIFEs (full + runtime-only) with stable npm/CDN paths and bundled .d.ts.",
   "keywords": [
     "gemmapod",
     "ai-agent",

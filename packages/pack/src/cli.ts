@@ -63,11 +63,11 @@ You are a helpful agent packaged as a gemmapod. Be concise and safe.
 preferred = ["webrtc", "fallback"]
 
 [transport.webrtc]
-signal_url = "wss://cloud.gemmapod.com/signal"
+signal_url = "https://signal.gemmapod.com/signal"
 pod_id = "my-agent"
 
 [transport.fallback]
-model = "onnx-community/gemma-4-E2B-it-ONNX"
+tier = "e2b"
 `;
 
 const INIT_GITIGNORE = `# Owner signing keys — never commit
@@ -98,8 +98,8 @@ const INIT_EMBED_HTML = `<!doctype html>
       systemPrompt: "You are a helpful agent packaged as a gemmapod. Be concise and safe.",
       model: "gemma4:e4b",
       transport: {
-        webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "my-agent" },
-        fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
+        webrtc: { signalUrl: "https://signal.gemmapod.com/signal", podId: "my-agent" },
+        fallback: { tier: "e2b" },
       },
     });
   </script>
@@ -138,7 +138,7 @@ function doctorPreferred(raw: RawPodTomlForDoctor, issues: string[]): void {
   const have = new Set<string>();
   if (raw.transport?.webrtc?.signal_url && raw.transport?.webrtc?.pod_id) have.add("webrtc");
   if (raw.transport?.direct?.base_url) have.add("direct");
-  if (raw.transport?.fallback?.model) have.add("fallback");
+  if (raw.transport?.fallback) have.add("fallback");
   for (const p of pref) {
     if (!have.has(p)) issues.push(`transport.preferred lists "${p}" but [transport.${p}] is missing or incomplete`);
   }
@@ -153,7 +153,7 @@ interface RawPodTomlForDoctor {
     preferred?: string[];
     webrtc?: { signal_url?: string; pod_id?: string };
     direct?: { base_url?: string };
-    fallback?: { model?: string };
+    fallback?: { tier?: string };
   };
   tools?: Array<{ name?: string; description?: string }>;
 }

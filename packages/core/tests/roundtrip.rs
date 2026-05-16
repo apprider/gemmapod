@@ -15,7 +15,7 @@ fn sign_verify_roundtrip() {
         name: "raj-card".into(),
         persona: "test".into(),
         system_prompt: "be terse".into(),
-        model: "gemma4:e4b".into(),
+        model: None,
         owner_pubkey: pk.clone(),
         transport: TransportSpec::default(),
         tools: vec![],
@@ -35,7 +35,7 @@ fn tampered_payload_rejected() {
         name: "x".into(),
         persona: "x".into(),
         system_prompt: "x".into(),
-        model: "gemma4:e4b".into(),
+        model: None,
         owner_pubkey: pk,
         transport: TransportSpec::default(),
         tools: vec![],
@@ -59,7 +59,7 @@ fn wrong_pubkey_rejected() {
         name: "x".into(),
         persona: "x".into(),
         system_prompt: "x".into(),
-        model: "gemma4:e4b".into(),
+        model: None,
         // Claim pk2 owns this, but sign with sk1 → verification anchored to
         // pk2 must reject the sk1-produced signature.
         owner_pubkey: pk2,

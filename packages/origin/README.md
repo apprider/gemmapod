@@ -8,8 +8,8 @@ them.
 
 ## What it does
 
-1. Opens a persistent `wss://` to the cloud signaling broker with
-   exponential-backoff reconnect.
+1. Opens a persistent connection to the cloud signaling broker (HTTPS →
+   WebSocket upgrade) with exponential-backoff reconnect.
 2. Sends `{t:"register", podId}`. From then on, the cloud routes any
    visitor offer for that pod id to this socket.
 3. For each incoming `{t:"offer", sessionId, sdp}`:
@@ -53,8 +53,8 @@ OpenAI-shaped server.
 
 Each WebRTC peer gets an ephemeral Ed25519 DARTC session key. DARTC
 signatures cover the canonical JSON envelope; the signed pod manifest
-remains the authority for pod identity, system prompt, model preference,
-transport config, and tool allow-list.
+remains the authority for pod identity, system prompt, transport config,
+and tool allow-list.
 
 Supported topics today:
 
@@ -91,7 +91,7 @@ exchange happens automatically after a visitor pod connects:
 The command must be run through pnpm's workspace filter:
 
 ```sh
-SIGNAL_URL=wss://gemmapod-cloud-1034706637876.us-central1.run.app/signal \
+SIGNAL_URL=https://signal.gemmapod.com/signal \
 POD_ID=raj-card \
 pnpm --filter @gemmapod/origin start
 ```
@@ -99,7 +99,7 @@ pnpm --filter @gemmapod/origin start
 If Ollama is not at the default URL:
 
 ```sh
-SIGNAL_URL=wss://gemmapod-cloud-1034706637876.us-central1.run.app/signal \
+SIGNAL_URL=https://signal.gemmapod.com/signal \
 POD_ID=raj-card \
 OLLAMA_URL=http://localhost:11434 \
 pnpm --filter @gemmapod/origin start
@@ -108,7 +108,7 @@ pnpm --filter @gemmapod/origin start
 To place the conversation database somewhere explicit:
 
 ```sh
-SIGNAL_URL=wss://gemmapod-cloud-1034706637876.us-central1.run.app/signal \
+SIGNAL_URL=https://signal.gemmapod.com/signal \
 POD_ID=raj-card \
 GEMMAPOD_ORIGIN_DB=/Users/raj/.gemmapod/raj-card.sqlite \
 pnpm --filter @gemmapod/origin start
@@ -117,7 +117,7 @@ pnpm --filter @gemmapod/origin start
 For stricter signed-manifest/tool enforcement, set the owner public key:
 
 ```sh
-SIGNAL_URL=wss://gemmapod-cloud-1034706637876.us-central1.run.app/signal \
+SIGNAL_URL=https://signal.gemmapod.com/signal \
 POD_ID=raj-card \
 OWNER_PUBKEY=<owner_public_key_hex> \
 pnpm --filter @gemmapod/origin start
@@ -157,7 +157,7 @@ pnpm dev:origin                             # this package
 | env             | default                              | meaning                                  |
 |-----------------|--------------------------------------|------------------------------------------|
 | `OLLAMA_URL`    | `http://localhost:11434`             | Where to proxy chat requests.            |
-| `SIGNAL_URL`    | `ws://localhost:8080/signal`         | Cloud signaling endpoint.                |
+| `SIGNAL_URL`    | `ws://localhost:8080/signal`         | Signaling endpoint. Use `https://` for production (`wss://` also accepted). |
 | `POD_ID`        | `raj-card`                           | Pod id to register for.                  |
 | `OWNER_PUBKEY`  | unset                                | Optional Ed25519 owner key the signed manifest must match before tools run. |
 | `GEMMAPOD_CONTACT_JSON` | unset                         | Optional JSON returned by the built-in `share_contact` tool. |
@@ -184,7 +184,7 @@ implemented locally by the origin daemon.
 Production uses the same command shape:
 
 ```sh
-SIGNAL_URL=wss://gemmapod-cloud-1034706637876.us-central1.run.app/signal \
+SIGNAL_URL=https://signal.gemmapod.com/signal \
 POD_ID=raj-card \
 pnpm --filter @gemmapod/origin start
 ```
@@ -210,5 +210,5 @@ is no managed deploy target. Typical setups:
 - **Mac mini at home.** `pnpm --filter @gemmapod/origin start` under
   `launchd` or `pm2`.
 - **Raspberry Pi.** Same, with Ollama serving smaller Gemma variants.
-- **VPS / Cloud Run.** Works too — the daemon only needs outbound WSS
-  and an Ollama endpoint to proxy to.
+- **VPS / Cloud Run.** Works too — the daemon only needs outbound HTTPS
+  (WebSocket) and an Ollama endpoint to proxy to.

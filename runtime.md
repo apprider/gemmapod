@@ -547,7 +547,7 @@ Preact-bearing browser adapter.
     model: "gemma4:e4b",
     transport: {
       webrtc: {
-        signalUrl: "wss://cloud.gemmapod.com/signal",
+        signalUrl: "https://signal.gemmapod.com/signal",
         podId: "restaurant-demo",
       },
       fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },

@@ -21,13 +21,13 @@ interface RawManifest {
   name: string;
   persona: string;
   system_prompt: string;
-  model: string;
+  model?: string;
   owner_pubkey: string;
   transport: {
     preferred?: string[];
     webrtc?: { signal_url: string; pod_id: string };
     direct?: { base_url: string };
-    fallback?: { model: string; models?: Array<{ id: string; label: string; sizeMB: number }> };
+    fallback?: { tier?: string };
   };
   tools?: Array<{ name: string; description: string }>;
 }
@@ -68,10 +68,7 @@ function toPodConfig(m: RawManifest): PodConfig {
         : undefined,
       direct: m.transport.direct ? { baseUrl: m.transport.direct.base_url } : undefined,
       fallback: m.transport.fallback
-        ? {
-            model: m.transport.fallback.model,
-            models: m.transport.fallback.models,
-          }
+        ? { tier: m.transport.fallback.tier }
         : undefined,
     },
   };

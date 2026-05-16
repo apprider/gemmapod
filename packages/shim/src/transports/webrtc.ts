@@ -3,6 +3,7 @@ import {
   parseEnvelope,
   signEnvelope,
   verifyEnvelope,
+  visitorAgentCard,
   type A2ADiscoveryPayload,
   type A2AAgentCard,
   type DartcEnvelope,
@@ -16,6 +17,10 @@ import {
 } from "@gemmapod/dartc";
 import { coreReady, generateKey, signBytes, verifyBytes } from "../core";
 import type { ChatChunk, ChatMessage, Transport } from "../types";
+
+function toWsUrl(url: string): string {
+  return url.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
+}
 
 type SignalMsg =
   | { t: "offer"; podId: string; sessionId: string; sdp: string }
@@ -131,7 +136,7 @@ export class WebRtcTransport implements Transport {
   private async handshake(signalUrl: string, podId: string): Promise<void> {
     this.emit("webrtc-offer", "creating browser offer");
     const sessionId = crypto.randomUUID();
-    const ws = new WebSocket(signalUrl);
+    const ws = new WebSocket(toWsUrl(signalUrl));
     await new Promise<void>((resolve, reject) => {
       const pendingSignals: SignalMsg[] = [];
       let offerSent = false;
@@ -402,7 +407,6 @@ export class WebRtcTransport implements Transport {
         payload: {
           request_id: id,
           conversation_id: this.conversationId,
-          model,
           messages,
           signedManifestB64: this.signedManifestB64,
         },
@@ -451,34 +455,7 @@ export class WebRtcTransport implements Transport {
         from: `visitor:${this.sessionKey!.publicKey}`,
         to: `pod:${this.podId}:origin`,
         topic: "a2a.discovery",
-        payload: {
-          kind: "AgentCard",
-          card: {
-            protocolVersion: "0.2.2",
-            name: "GemmaPod browser visitor",
-            description: "A browser session connected to a GemmaPod over DARTC/WebRTC.",
-            capabilities: {
-              streaming: true,
-              pushNotifications: false,
-              stateTransitionHistory: false,
-            },
-            skills: [
-              {
-                id: "gemmapod-chat-client",
-                name: "GemmaPod chat client",
-                description: "Can send signed chat requests and receive streamed DARTC responses.",
-                tags: ["dartc", "webrtc", "browser"],
-              },
-            ],
-            extensions: [
-              {
-                uri: "https://gemmapod.com/protocols/dartc",
-                version: "0.2",
-                topics: ["gemmapod.chat.request", "gemmapod.ui.event", "a2a.discovery"],
-              },
-            ],
-          },
-        },
+        payload: { kind: "AgentCard", card: visitorAgentCard() },
       }),
     );
   }

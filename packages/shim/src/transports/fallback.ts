@@ -37,10 +37,35 @@ export interface FallbackModelOption {
   sizeMB: number;
 }
 
+// Static list used as the immediate default and as a safety net when the API
+// is unreachable. The canonical list lives at gemmapod.com/api/browser-models.
 export const FALLBACK_MODELS: FallbackModelOption[] = [
   { id: "onnx-community/gemma-4-E2B-it-ONNX", label: "Gemma 4 E2B", sizeMB: 3000 },
   { id: "onnx-community/gemma-4-E4B-it-ONNX", label: "Gemma 4 E4B", sizeMB: 3900 },
 ];
+
+const BROWSER_MODELS_URL = "https://gemmapod.com/api/browser-models";
+let _modelsPromise: Promise<FallbackModelOption[]> | null = null;
+
+function isValidModelList(data: unknown): data is FallbackModelOption[] {
+  return (
+    Array.isArray(data) &&
+    data.length > 0 &&
+    data.every(
+      (m) => typeof m === "object" && m !== null && typeof (m as Record<string, unknown>).id === "string",
+    )
+  );
+}
+
+export function fetchBrowserModels(): Promise<FallbackModelOption[]> {
+  if (!_modelsPromise) {
+    _modelsPromise = fetch(BROWSER_MODELS_URL, { signal: AbortSignal.timeout(5000) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data: unknown) => (isValidModelList(data) ? data : FALLBACK_MODELS))
+      .catch(() => FALLBACK_MODELS);
+  }
+  return _modelsPromise;
+}
 
 export interface CacheInfo {
   state: "cached" | "missing" | "unavailable";
@@ -86,8 +111,8 @@ export class FallbackTransport implements Transport {
   private aborted = false;
   private readonly uiEventObservers = new Set<DartcUiEventObserver>();
 
-  constructor(initialModelId: string) {
-    this.modelId = initialModelId;
+  constructor(initialModelId?: string) {
+    this.modelId = initialModelId ?? FALLBACK_MODELS[0]!.id;
   }
 
   static supportsWebGPU(): boolean {

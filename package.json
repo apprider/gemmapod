@@ -21,6 +21,7 @@
     "build": "pnpm build:core && pnpm -r --filter \"./packages/*\" run build",
     "build:core": "pnpm --filter @gemmapod/core run build",
     "test": "pnpm --filter @gemmapod/dartc test && pnpm --filter @gemmapod/cloud test",
+    "dev:gemmapod": "pnpm --filter gemmapod dev",
     "dev:shim": "pnpm --filter @gemmapod/shim dev",
     "dev:origin": "pnpm --filter @gemmapod/origin dev",
     "dev:cloud": "pnpm --filter @gemmapod/cloud dev",

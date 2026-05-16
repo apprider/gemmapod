@@ -21,11 +21,11 @@ Stay grounded. Decline anything outside this scope politely.
 preferred = ["webrtc", "fallback"]
 
 [transport.webrtc]
-signal_url = "wss://cloud.gemmapod.com/signal"
+signal_url = "https://signal.gemmapod.com/signal"
 pod_id = "raj-card"
 
 [transport.fallback]
-model = "onnx-community/gemma-4-E2B-it-ONNX"
+tier = "e2b"
 
 [[tools]]
 name = "share_contact"

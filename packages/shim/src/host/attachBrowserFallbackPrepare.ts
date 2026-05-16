@@ -4,15 +4,7 @@
 
 import type { GemmaPodRuntime } from "../runtime/events";
 import type { PrepareProgress } from "../transports/fallback";
-import { FallbackTransport, FALLBACK_MODELS, type FallbackModelOption } from "../transports/fallback";
-
-function resolveModelOptions(transport: FallbackTransport, manifest: GemmaPodRuntime["manifest"]): FallbackModelOption[] {
-  const fb = manifest.transport.fallback;
-  if (!fb) return [];
-  if (fb.models?.length) return fb.models;
-  const hit = FALLBACK_MODELS.find((m) => m.id === transport.modelId);
-  return [hit ?? { id: fb.model, label: fb.model, sizeMB: 0 }];
-}
+import { FallbackTransport, FALLBACK_MODELS, fetchBrowserModels, type FallbackModelOption } from "../transports/fallback";
 
 function formatBytes(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
@@ -45,13 +37,20 @@ export function attachBrowserFallbackPrepare(
   if (!container) return () => {};
   let progressMap = new Map<string, PrepareProgress>();
   let cacheFetch = 0;
+  let liveModels: FallbackModelOption[] | null = null;
+
+  // Kick off model list fetch; re-render when it arrives
+  void fetchBrowserModels().then((models) => {
+    liveModels = models;
+    paint();
+  });
 
   const paint = () => {
     const t = runtime.getTransport();
     container.innerHTML = "";
     if (!t || !(t instanceof FallbackTransport)) return;
 
-    const models = resolveModelOptions(t, runtime.manifest);
+    const models = liveModels ?? FALLBACK_MODELS;
     const root = document.createElement("div");
     root.style.cssText =
       "box-sizing:border-box;font-family:system-ui,sans-serif;padding:16px 18px;margin-bottom:12px;" +

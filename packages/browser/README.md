@@ -28,7 +28,7 @@ pnpm --filter @gemmapod/browser build
     systemPrompt: "You are concise.",
     model: "gemma4:e4b",
     transport: {
-      webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "my-pod" },
+      webrtc: { signalUrl: "https://signal.gemmapod.com/signal", podId: "my-pod" },
       fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
     },
   }).then(({ runtime, destroy }) => {

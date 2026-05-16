@@ -29,8 +29,9 @@ pub struct Manifest {
     pub persona: String,
     /// System prompt seeded into every chat turn.
     pub system_prompt: String,
-    /// Preferred model identifier (e.g. "gemma4:e4b").
-    pub model: String,
+    /// Preferred model — optional; origin selects model from pod.toml at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Owner's Ed25519 public key (hex). Verification anchors to this.
     pub owner_pubkey: String,
     /// Transport configuration. JSON-shaped; the runtime interprets.
@@ -64,9 +65,10 @@ pub struct DirectSpec {
     pub base_url: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FallbackSpec {
-    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

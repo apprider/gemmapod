@@ -1,0 +1,57 @@
+{
+  "name": "gemmapod",
+  "version": "0.2.2",
+  "type": "module",
+  "description": "GemmaPod owner CLI — create, build, run, and manage signed AI agent pods with a single command.",
+  "keywords": [
+    "gemmapod",
+    "ai-agent",
+    "cli",
+    "ollama",
+    "webrtc",
+    "gemma4"
+  ],
+  "license": "MIT",
+  "author": "Raj Kushawaha <raj.design@gmail.com>",
+  "homepage": "https://gemmapod.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apprider/gemmapod.git",
+    "directory": "packages/gemmapod"
+  },
+  "bugs": {
+    "url": "https://github.com/apprider/gemmapod/issues"
+  },
+  "main": "./dist/cli.js",
+  "bin": {
+    "gemmapod": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p . && chmod +x dist/cli.js",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.0",
+    "@gemmapod/core": "workspace:*",
+    "@gemmapod/origin": "workspace:*",
+    "@gemmapod/shim": "workspace:*",
+    "commander": "^12.1.0",
+    "smol-toml": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -45,8 +45,9 @@
 | [`packages/core/`](packages/core/README.md)       | `@gemmapod/core` — Rust → WASM. Signed manifest (CBOR + Ed25519). Web + Node.       |
 | [`packages/shim/`](packages/shim/README.md)       | `@gemmapod/shim` — Browser runtime + Preact widget. Two IIFEs from one source.      |
 | [`packages/browser/`](packages/browser/README.md) | `@gemmapod/browser` — npm/CDN wrapper around the two shim IIFEs.                    |
-| [`packages/pack/`](packages/pack/README.md)       | `@gemmapod/pack` — `gemmapod` CLI: `init` / `keygen` / `doctor` / `build`.           |
-| [`packages/origin/`](packages/origin/README.md)   | `@gemmapod/origin` — Owner-side daemon. WebRTC + Ollama proxy + signed tool registry. |
+| [`packages/gemmapod/`](packages/gemmapod/)        | `gemmapod` — Unified owner CLI: `create` wizard, `run`, `rebuild`, `doctor`.         |
+| [`packages/pack/`](packages/pack/README.md)       | `@gemmapod/pack` — `gemmapod` CLI (deprecated, use `gemmapod`): `init` / `keygen` / `doctor` / `build`. |
+| [`packages/origin/`](packages/origin/README.md)   | `@gemmapod/origin` — Owner-side daemon library. WebRTC + Ollama proxy + signed tool registry. |
 | [`packages/cloud/`](packages/cloud/README.md)     | `@gemmapod/cloud` — Signaling broker + pluggable `Registry` interface.              |
 | [`apps/docs/`](apps/docs/README.md)               | Fumadocs site → docs.gemmapod.com.                                                  |
 | [`examples/`](examples/README.md)                 | hello-pod, script-tag-embed, nextjs-embed, react-headless, copilotkit-style, restaurant-pod, origin-daemon-minimal, self-host-signaling, raj-card. |
@@ -61,11 +62,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@gemmapod/browser@0.1.0/dist/gemmapod-shim.iife.js"></script>
 
 # Or from npm
-npm i @gemmapod/browser     # browser SDK
-npm i -D @gemmapod/pack     # `gemmapod` CLI
+npm i gemmapod              # owner CLI (create, run, rebuild, doctor)
+npm i @gemmapod/browser     # browser SDK for embedding
 
-# Owner daemon + signaling broker
-docker run ghcr.io/apprider/gemmapod-origin
+# Self-host the signaling broker
 docker run ghcr.io/apprider/gemmapod-cloud
 ```
 
@@ -74,15 +74,47 @@ docker run ghcr.io/apprider/gemmapod-cloud
 ## 60-second hello world
 
 ```sh
+# One interactive wizard — creates pod.toml, owner.key, and agent.html
+npx gemmapod create
+```
+
+That's it. The wizard guides you through name, persona, system prompt,
+tools, and model selection. Your signed `.html` agent capsule lands in
+`./my-pod/agent.html`.
+
+**Go live** — stream visitors through your local Ollama over WebRTC:
+
+```sh
+npx gemmapod run ./my-pod
+```
+
+**After editing `pod.toml`** — rebuild the signed capsule:
+
+```sh
+npx gemmapod rebuild ./my-pod
+```
+
+**Validate before building:**
+
+```sh
+npx gemmapod doctor ./my-pod/pod.toml
+```
+
+[Full quickstart →](https://docs.gemmapod.com/docs/quickstart/first-pod-cli)
+
+<details>
+<summary>Manual workflow (using @gemmapod/pack directly)</summary>
+
+> `@gemmapod/pack` is deprecated in favour of the `gemmapod` package above.
+
+```sh
 pnpm dlx @gemmapod/pack init  --dir ./my-pod
 pnpm dlx @gemmapod/pack keygen --out  ./my-pod/owner.key
 pnpm dlx @gemmapod/pack build  ./my-pod/pod.toml --key ./my-pod/owner.key --out ./my-pod/agent.html
 open ./my-pod/agent.html
 ```
 
-That's a signed `.html` agent capsule, ready to email or embed.
-
-[Full quickstart →](https://docs.gemmapod.com/docs/quickstart/first-pod-cli)
+</details>
 
 ## Build from source
 

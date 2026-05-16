@@ -22,7 +22,7 @@ const config = {
     "You are a demo agent. Mention that you're running inside a Next.js page via the @gemmapod/browser IIFE.",
   model: "gemma4:e4b",
   transport: {
-    webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "nextjs-embed-demo" },
+    webrtc: { signalUrl: "https://signal.gemmapod.com/signal", podId: "nextjs-embed-demo" },
     fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
   },
 };

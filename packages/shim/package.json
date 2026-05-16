@@ -1,8 +1,8 @@
 {
   "name": "@gemmapod/shim",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "type": "module",
-  "description": "Browser runtime for GemmaPod pods: GemmaPodRuntime (event bus, state store, capability registry), DARTC over WebRTC + WebGPU fallback + direct HTTP transports, AG-UI-shaped UI event stream, and the default Preact chat widget. Ships two IIFEs from one source \u2014 full and runtime-only.",
+  "description": "Browser runtime for GemmaPod pods: GemmaPodRuntime (event bus, state store, capability registry), DARTC over WebRTC + WebGPU fallback + direct HTTP transports, AG-UI-shaped UI event stream, and the default Preact chat widget. Ships two IIFEs from one source — full and runtime-only.",
   "keywords": [
     "gemmapod",
     "ai-agent",
@@ -54,11 +54,11 @@
   },
   "dependencies": {
     "@gemmapod/core": "workspace:*",
-    "@gemmapod/dartc": "workspace:*",
-    "@huggingface/transformers": "^3.7.0",
-    "preact": "^10.25.1"
+    "@gemmapod/dartc": "workspace:*"
   },
   "devDependencies": {
+    "@huggingface/transformers": "^3.7.0",
+    "preact": "^10.25.1",
     "@preact/preset-vite": "^2.9.3",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"

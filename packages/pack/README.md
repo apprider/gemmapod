@@ -60,11 +60,11 @@ You are…
 preferred = ["webrtc", "fallback"]    # informational today (see note)
 
 [transport.webrtc]
-signal_url = "wss://…/signal"
+signal_url = "https://…/signal"
 pod_id = "my-pod"
 
 [transport.fallback]
-model = "onnx-community/gemma-4-E2B-it-ONNX"
+tier = "e2b"
 
 [[tools]]
 name = "share_contact"

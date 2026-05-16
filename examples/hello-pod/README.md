@@ -37,7 +37,7 @@ of a degraded persona.
 ## Next
 
 - Email the `.html` to a friend. They open it; it phones your origin.
-- Deploy it: `curl -X POST -H 'Content-Type: text/html' --data-binary @hello-pod.html https://cloud.gemmapod.com/pods` returns a stable `gemmapod.com/<id>` URL.
+- Deploy it: `curl -X POST -H 'Content-Type: text/html' --data-binary @hello-pod.html https://gemmapod.com/pods` returns a stable `gemmapod.com/ab-cdef-ghij` URL.
 - Add a tool: append `[[tools]]` blocks to `pod.toml`, rebuild, run the
   origin daemon — the origin will only expose tools whose names appear in
   the signed manifest.

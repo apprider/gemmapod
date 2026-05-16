@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/origin",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Owner-side daemon for GemmaPod. Connects outbound WSS to a signaling broker, opens a WebRTC DataChannel per visitor, speaks DARTC v0.2, verifies the signed pod manifest, and proxies chat to a local Ollama (or any OpenAI-compatible) endpoint with persistent SQLite conversation memory.",
   "keywords": [
@@ -25,6 +25,13 @@
     "url": "https://github.com/apprider/gemmapod/issues"
   },
   "main": "./dist/daemon.js",
+  "exports": {
+    ".": {
+      "types": "./dist/daemon.d.ts",
+      "import": "./dist/daemon.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "gemmapod-origin": "./dist/daemon.js"
   },
@@ -45,10 +52,13 @@
     "@gemmapod/core": "workspace:*",
     "@gemmapod/dartc": "workspace:*",
     "@hono/node-server": "^1.13.7",
+    "@mastra/core": "^1.35.0",
     "enquirer": "^2.4.1",
     "hono": "^4.6.14",
     "node-datachannel": "^0.27.0",
-    "ws": "^8.18.0"
+    "smol-toml": "^1.3.1",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

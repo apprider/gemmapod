@@ -31,7 +31,7 @@ const config = {
     "You are a demo agent showing that GemmaPod's runtime can be embedded with a fully custom UI. Be terse.",
   model: "gemma4:e4b",
   transport: {
-    webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "react-headless-demo" },
+    webrtc: { signalUrl: "https://signal.gemmapod.com/signal", podId: "react-headless-demo" },
     fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
   },
 };

@@ -29,7 +29,7 @@ npx serve .                # or any static-file server
 2. **Add Subresource Integrity** — see the build instructions in
    [`packages/browser/README.md`](../../packages/browser/README.md#subresource-integrity-production).
 3. **Point `signalUrl` + `podId`** at your own origin (either the public
-   `cloud.gemmapod.com` or a self-hosted `@gemmapod/cloud`).
+   `signal.gemmapod.com` or a self-hosted `@gemmapod/cloud`).
 4. **Set a strict `Content-Security-Policy`** on the embedding page. The
    shim needs `'wasm-unsafe-eval'` for the WASM core and `'unsafe-inline'`
    for its inlined boot snippet; everything else can be locked down.

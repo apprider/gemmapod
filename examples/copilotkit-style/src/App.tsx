@@ -33,7 +33,7 @@ const config = {
     "You are a demo agent. Briefly introduce yourself, then say what's happening — every event the runtime emits is shown twice on the page: once as DARTC (SCREAMING_SNAKE), once as AG-UI (PascalCase).",
   model: "gemma4:e4b",
   transport: {
-    webrtc: { signalUrl: "wss://cloud.gemmapod.com/signal", podId: "agui-bridge-demo" },
+    webrtc: { signalUrl: "https://signal.gemmapod.com/signal", podId: "agui-bridge-demo" },
     fallback: { model: "onnx-community/gemma-4-E2B-it-ONNX" },
   },
 };

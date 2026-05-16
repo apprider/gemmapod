@@ -11,7 +11,7 @@ export interface Manifest {
   name: string;
   persona: string;
   system_prompt: string;
-  model: string;
+  model?: string;
   owner_pubkey: string;
   transport: TransportSpec;
   tools: ToolSpec[];
@@ -21,7 +21,7 @@ export interface TransportSpec {
   preferred: string[];
   webrtc?: { signal_url: string; pod_id: string };
   direct?: { base_url: string };
-  fallback?: { model: string };
+  fallback?: { tier?: string };
 }
 
 export interface ToolSpec {
@@ -40,7 +40,7 @@ interface RawPodToml {
     preferred?: string[];
     webrtc?: { signal_url?: string; pod_id?: string };
     direct?: { base_url?: string };
-    fallback?: { model?: string };
+    fallback?: { tier?: string };
   };
   tools?: Array<{ name?: string; description?: string }>;
 }
@@ -48,7 +48,6 @@ interface RawPodToml {
 export function fromToml(raw: RawPodToml, ownerPubkeyHex: string): Manifest {
   if (!raw.name) throw new Error("pod.toml: missing 'name'");
   if (!raw.system_prompt) throw new Error("pod.toml: missing 'system_prompt'");
-  if (!raw.model) throw new Error("pod.toml: missing 'model'");
   const transport: TransportSpec = {
     preferred: raw.transport?.preferred ?? ["webrtc", "fallback"],
   };
@@ -68,10 +67,9 @@ export function fromToml(raw: RawPodToml, ownerPubkeyHex: string): Manifest {
     transport.direct = { base_url: raw.transport.direct.base_url };
   }
   if (raw.transport?.fallback) {
-    if (!raw.transport.fallback.model) {
-      throw new Error("pod.toml [transport.fallback] requires model");
-    }
-    transport.fallback = { model: raw.transport.fallback.model };
+    transport.fallback = raw.transport.fallback.tier
+      ? { tier: raw.transport.fallback.tier }
+      : {};
   }
   return {
     v: 1,

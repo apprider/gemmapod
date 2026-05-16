@@ -10,6 +10,7 @@
 // Data-channel wire protocol: DARTC v0.2 envelopes only.
 
 import {
+  agentCardFromManifest,
   createEnvelope,
   createUiEventEnvelope,
   parseEnvelope,
@@ -29,8 +30,10 @@ import WebSocket from "ws";
 import { RTCPeerConnection } from "node-datachannel/polyfill";
 import enquirer from "enquirer";
 import { createRequire } from "node:module";
-import { buildToolRuntime, type ToolCall, type VerifiedPodManifest } from "./toolRuntime";
-import { ConversationStore, type OriginMessage } from "./conversationStore";
+import { buildToolRuntime, type VerifiedPodManifest } from "./toolRuntime.js";
+import { ConversationStore } from "./conversationStore.js";
+import { getMastraInstance } from "./mastra/index.js";
+import { createDashboardServer, pushEvent, type DashboardState } from "./dashboard/server.js";
 
 type SignalMsg =
   | { t: "register"; podId: string; ownerToken?: string }
@@ -40,15 +43,18 @@ type SignalMsg =
   | { t: "candidate"; sessionId: string; candidate: RTCIceCandidateInit }
   | { t: "error"; sessionId?: string; message: string };
 
-const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
-const SIGNAL_URL = process.env.SIGNAL_URL ?? "ws://localhost:8080/signal";
+function toWsUrl(url: string): string {
+  return url.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
+}
+
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:global.stun.twilio.com:3478" },
 ];
-const MAX_TOOL_ROUNDS = 2;
 const CONVERSATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CONVERSATION_MESSAGES = 80;
+
+const _require = createRequire(import.meta.url);
 
 type GemmaPodCoreModule = {
   GemmaPodCore: {
@@ -74,95 +80,91 @@ interface DartcPeerSession {
   sendUiEvent(event: DartcUiEvent, dartc?: DartcMetadata): Promise<void>;
 }
 
-let selectedModel = "";
-let selectedPodId = process.env.POD_ID ?? "";
-const require = createRequire(import.meta.url);
-let coreModule: GemmaPodCoreModule | null = null;
-const conversations = new ConversationStore();
+export interface DaemonConfig {
+  podId: string;
+  signalUrl: string;
+  ollamaUrl: string;
+  model: string;
+  ownerPubkey?: string;
+  contactJson?: string;
+  dbPath?: string;
+}
 
-async function bootstrap() {
-  console.log(`[origin] checking Ollama at ${OLLAMA_URL}...`);
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`);
-    const data = await res.json() as { models: Array<{ name: string }> };
-    const models = data.models.map(m => m.name);
-
-    if (models.length === 0) {
-      console.warn("[origin] no models found in Ollama. Please run 'ollama pull gemma4:e4b' first.");
-      process.exit(1);
-    }
-
-    const prompt = new (enquirer as any).Select({
-      name: 'model',
-      message: 'Select an Ollama model to serve:',
-      choices: models
-    });
-
-    selectedModel = await prompt.run();
-    console.log(`[origin] selected model: ${selectedModel}`);
-
-    if (!selectedPodId) {
-      const input = new (enquirer as any).Input({
-        message: 'Enter Pod ID to register (e.g. raj-card):',
-        initial: 'raj-card'
-      });
-      selectedPodId = await input.run();
-    }
-    console.log(`[origin] using Pod ID: ${selectedPodId}`);
-
-    connect();
-  } catch (e) {
-    console.error(`[origin] failed to reach Ollama:`, e);
-    process.exit(1);
-  }
+interface DaemonState {
+  ollamaUrl: string;
+  signalUrl: string;
+  selectedModel: string;
+  selectedPodId: string;
+  coreModule: GemmaPodCoreModule | null;
+  conversations: ConversationStore;
+  activePeers: Map<string, RTCPeerConnection>;
+  pendingCandidatesBySession: Map<string, RTCIceCandidateInit[]>;
+  ws: WebSocket | null;
+  reconnectAttempt: number;
+  dashboard: DashboardState;
 }
 
 async function handleChat(
   req: GemmaPodChatRequest,
   session: DartcPeerSession,
+  state: DaemonState,
 ): Promise<void> {
-  const toolRuntime = buildToolRuntime(req.signedManifestB64, selectedPodId);
-  const modelToUse = selectedModel || toolRuntime.manifest?.model || req.model || "gemma4:e4b";
+  const toolRuntime = buildToolRuntime(req.signedManifestB64, state.selectedPodId);
+  const modelToUse = state.selectedModel || toolRuntime.manifest?.model || "gemma4:e4b";
   const conversationId = req.conversation_id ?? session.conversationId ?? `session:${session.originKey.publicKey}`;
   const runId = req.request_id;
   const messageId = `${runId}:assistant`;
-  const memoryKey = conversationId ? conversationMemoryKey(selectedPodId, conversationId) : null;
-  const remembered = memoryKey ? conversations.get(memoryKey)?.messages ?? [] : [];
+  const memoryKey = conversationId ? conversationMemoryKey(state.selectedPodId, conversationId) : null;
+  const remembered = memoryKey ? state.conversations.get(memoryKey)?.messages ?? [] : [];
   const incomingMessages = req.messages.filter((m) => m.role !== "system");
   const conversationMessages =
     incomingMessages.length > 1 || remembered.length === 0
       ? incomingMessages
       : [...remembered, ...incomingMessages];
-  const messages = toolRuntime.manifest
-    ? [
-        { role: "system" as const, content: toolRuntime.manifest.system_prompt },
-        ...conversationMessages,
-      ]
-    : conversationMessages;
 
   console.log(
-    `[origin] chat request using model: ${modelToUse} (${messages.length} messages, ${toolRuntime.tools.length} signed tools, conversation=${conversationId ?? "none"})`,
+    `[origin] chat request using model: ${modelToUse} (${conversationMessages.length} messages, ${toolRuntime.tools.length} signed tools, conversation=${conversationId ?? "none"})`,
   );
+
   try {
     const prompt = latestUserPrompt(incomingMessages);
+    state.dashboard.status = "running";
+    state.dashboard.totalMessages += incomingMessages.length;
+
+    // Push user message to dashboard
+    const lastUserMsg = incomingMessages[incomingMessages.length - 1];
+    if (lastUserMsg?.role === "user") {
+      pushEvent({
+        id: `user-${runId}`,
+        type: "user",
+        content: lastUserMsg.content,
+        timestamp: Date.now(),
+        metadata: { conversationId, runId },
+      });
+    }
+
+    // ── UI: run started ──
     await session.sendUiEvent({
       type: "RUN_STARTED",
       threadId: conversationId,
       runId,
       input: { model: modelToUse, messages: incomingMessages },
     }, { stream: true });
+
     await sendCompanionEvent(session, conversationId, runId, "companion.react", {
       mood: "thinking",
       stage: "center",
       expression: "thinking",
       text: prompt ? "I am shaping this into a quick view." : "I am checking with the owner origin.",
     });
+
     await sendCompanionEvent(session, conversationId, runId, "presentation.show", {
       title: prompt ? presentationTitle(prompt) : "Working on it",
       body: "The origin is preparing a signed presentation event.",
       items: ["Receiving the request", "Running Gemma", "Preparing the response"],
       status: "working",
     });
+
     await session.sendUiEvent({
       type: "TEXT_MESSAGE_START",
       threadId: conversationId,
@@ -171,44 +173,186 @@ async function handleChat(
       role: "assistant",
     }, { stream: true });
 
+    // ── Mastra-powered agent streaming ──
+    const systemPrompt = toolRuntime.manifest?.system_prompt ?? "You are a helpful assistant.";
+
+    const mastra = getMastraInstance({
+      ollamaUrl: state.ollamaUrl,
+      model: modelToUse,
+      systemPrompt,
+      manifest: toolRuntime.manifest,
+      toolRuntime,
+    });
+
+    const agent = mastra.getAgent("gemmapod-agent");
+
+    // Convert messages to Mastra format (filter out system since it's in instructions)
+    const mastraMessages = conversationMessages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
+
+    const response = await agent.stream(mastraMessages);
+
     let assistantContent = "";
-    if (toolRuntime.tools.length > 0) {
-      const finalMessages = await runToolRounds(modelToUse, messages, toolRuntime, session, conversationId, runId, messageId);
-      assistantContent = await streamCompletion(modelToUse, finalMessages, session, req.request_id, conversationId, runId, messageId);
-    } else {
-      assistantContent = await streamCompletion(modelToUse, messages, session, req.request_id, conversationId, runId, messageId);
+    let chunkCount = 0;
+
+    // Consume the full stream
+    const reader = response.fullStream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Handle different chunk types
+        if (value && typeof value === "object") {
+          const chunk = value as any;
+
+          if (chunk.type === "text-delta" && chunk.textDelta) {
+            chunkCount++;
+            const delta = chunk.textDelta;
+            assistantContent += delta;
+
+            if (chunkCount === 1) {
+              console.log(`[origin] first content chunk received: ${JSON.stringify(delta)}`);
+              await sendCompanionEvent(session, conversationId, runId, "companion.react", {
+                mood: "presenting",
+                stage: "presenting-left",
+                expression: "talking",
+                text: "Response is streaming into the page.",
+              }, { stream: true, chunk_id: chunkCount, is_final: false });
+            }
+
+            await session.sendUiEvent({
+              type: "TEXT_MESSAGE_CONTENT",
+              threadId: conversationId,
+              runId,
+              messageId,
+              delta,
+            }, {
+              stream: true,
+              chunk_id: chunkCount,
+              is_final: false,
+            });
+
+            await session.sendDartc<GemmaPodChatDelta>("gemmapod.chat.delta", {
+              request_id: runId,
+              delta,
+            }, {
+              stream: true,
+              chunk_id: chunkCount,
+              is_final: false,
+            });
+          } else if (chunk.type === "tool-call") {
+            console.log(`[origin] tool call: ${chunk.toolName}`);
+            pushEvent({
+              id: `tool-${chunk.toolCallId}`,
+              type: "tool_call",
+              content: `Calling tool: ${chunk.toolName}`,
+              timestamp: Date.now(),
+              metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId, conversationId, runId },
+            });
+            await session.sendUiEvent({
+              type: "TOOL_CALL_START",
+              threadId: conversationId,
+              runId,
+              toolCallId: chunk.toolCallId,
+              toolCallName: chunk.toolName,
+              parentMessageId: messageId,
+            }, { stream: true });
+          } else if (chunk.type === "tool-result") {
+            const resultStr = typeof chunk.result === "string" ? chunk.result : JSON.stringify(chunk.result);
+            pushEvent({
+              id: `result-${chunk.toolCallId}`,
+              type: "tool_result",
+              content: resultStr,
+              timestamp: Date.now(),
+              metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId, conversationId, runId },
+            });
+            await session.sendUiEvent({
+              type: "TOOL_CALL_RESULT",
+              threadId: conversationId,
+              runId,
+              messageId: `${runId}:tool:${chunk.toolCallId}`,
+              toolCallId: chunk.toolCallId,
+              role: "tool",
+              content: resultStr,
+            }, { stream: true });
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
+
+    console.log(`[origin] chat done (chunks: ${chunkCount})`);
+
+    // ── UI: finalize ──
     await sendCompanionEvent(session, conversationId, runId, "presentation.show", {
       title: prompt ? presentationTitle(prompt) : "GemmaPod response",
       body: summarySentence(assistantContent),
       items: presentationItems(assistantContent),
       status: "ready",
     }, { stream: true, is_final: true });
+
     await sendCompanionEvent(session, conversationId, runId, "companion.react", {
       mood: "presenting",
       stage: "presenting-left",
       expression: "happy",
       text: "I prepared a small presentation from the origin response.",
     });
+
     await session.sendUiEvent({
       type: "TEXT_MESSAGE_END",
       threadId: conversationId,
       runId,
       messageId,
     }, { stream: true, is_final: true });
+
+    await session.sendDartc<GemmaPodChatDone>("gemmapod.chat.done", {
+      request_id: runId,
+    }, {
+      stream: true,
+      is_final: true,
+    });
+
     await session.sendUiEvent({ type: "RUN_FINISHED", threadId: conversationId, runId }, {
       stream: true,
       is_final: true,
     });
+
+    // ── Persist conversation ──
     if (memoryKey) {
-      conversations.set(memoryKey, {
+      state.conversations.set(memoryKey, {
         messages: [...conversationMessages, { role: "assistant", content: assistantContent }]
           .slice(-MAX_CONVERSATION_MESSAGES),
         updatedAt: Date.now(),
       });
     }
+
+    // Push assistant response to dashboard
+    if (assistantContent) {
+      pushEvent({
+        id: `assistant-${runId}`,
+        type: "assistant",
+        content: assistantContent,
+        timestamp: Date.now(),
+        metadata: { conversationId, runId, chunks: chunkCount },
+      });
+    }
+
+    state.dashboard.status = "idle";
   } catch (e) {
-    console.error(`[origin] fetch/tool failed:`, e);
+    console.error(`[origin] mastra agent failed:`, e);
+    state.dashboard.status = "error";
+    state.dashboard.lastError = (e as Error).message;
+    pushEvent({
+      id: `error-${runId}`,
+      type: "error",
+      content: (e as Error).message,
+      timestamp: Date.now(),
+      metadata: { conversationId, runId, code: "chat_failed" },
+    });
     await session.sendUiEvent({
       type: "RUN_ERROR",
       threadId: conversationId,
@@ -278,198 +422,16 @@ function presentationItems(content: string): string[] {
   return candidates.slice(0, 4).map((item) => item.length > 140 ? `${item.slice(0, 137).trim()}...` : item);
 }
 
-async function streamCompletion(
-  model: string,
-  messages: OriginMessage[],
-  session: DartcPeerSession,
-  requestId: string,
-  threadId: string,
-  runId: string,
-  messageId: string,
-): Promise<string> {
-  const res = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, stream: true }),
-  });
-
-  console.log(`[origin] Ollama response status: ${res.status} ${res.statusText}`);
-  if (!res.ok || !res.body) {
-    const errBody = await res.text().catch(() => "");
-    console.error(`[origin] Ollama error: ${res.status} ${errBody}`);
-    await session.sendDartc("dartc.error", {
-      code: "ollama_error",
-      message: `ollama ${res.status}`,
-      request_id: requestId,
-    });
-    return "";
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  let chunkCount = 0;
-  let assistantContent = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    for (const line of lines) {
-      const s = line.trim();
-      if (!s.startsWith("data:")) continue;
-      const payload = s.slice(5).trim();
-      if (payload === "[DONE]") {
-        console.log(`[origin] chat done (chunks: ${chunkCount})`);
-        await session.sendDartc<GemmaPodChatDone>("gemmapod.chat.done", { request_id: requestId }, {
-          stream: true,
-          is_final: true,
-        });
-        return assistantContent;
-      }
-      try {
-        const json = JSON.parse(payload);
-        const delta = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.delta?.reasoning;
-        if (delta) {
-          chunkCount++;
-          assistantContent += delta;
-          if (chunkCount === 1) {
-            console.log(
-              `[origin] first content/reasoning chunk received: ${JSON.stringify(delta)}`,
-            );
-            await sendCompanionEvent(session, threadId, runId, "companion.react", {
-              mood: "presenting",
-              stage: "presenting-left",
-              expression: "talking",
-              text: "Response is streaming into the page.",
-            }, { stream: true, chunk_id: chunkCount, is_final: false });
-          }
-          await session.sendUiEvent({
-            type: "TEXT_MESSAGE_CONTENT",
-            threadId,
-            runId,
-            messageId,
-            delta,
-          }, {
-            stream: true,
-            chunk_id: chunkCount,
-            is_final: false,
-          });
-          await session.sendDartc<GemmaPodChatDelta>("gemmapod.chat.delta", {
-            request_id: requestId,
-            delta,
-          }, {
-            stream: true,
-            chunk_id: chunkCount,
-            is_final: false,
-          });
-        }
-      } catch (e) {
-        console.warn(`[origin] failed to parse chunk: ${payload}`, e);
-      }
-    }
-  }
-  console.log(`[origin] chat finished stream (chunks: ${chunkCount})`);
-  await session.sendDartc<GemmaPodChatDone>("gemmapod.chat.done", { request_id: requestId }, {
-    stream: true,
-    is_final: true,
-  });
-  return assistantContent;
-}
-
-async function runToolRounds(
-  model: string,
-  initialMessages: Array<{ role: string; content: string }>,
-  toolRuntime: ReturnType<typeof buildToolRuntime>,
-  session: DartcPeerSession,
-  threadId: string,
-  runId: string,
-  parentMessageId: string,
-): Promise<OriginMessage[]> {
-  const messages: OriginMessage[] = [...initialMessages];
-
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const res = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, tools: toolRuntime.tools, stream: false }),
-    });
-    if (!res.ok) throw new Error(`ollama ${res.status}`);
-    const json = await res.json() as {
-      choices?: Array<{
-        message?: {
-          role?: string;
-          content?: string;
-          tool_calls?: ToolCall[];
-        };
-      }>;
-    };
-    const assistant = json.choices?.[0]?.message;
-    const toolCalls = assistant?.tool_calls ?? [];
-    if (toolCalls.length === 0) return messages;
-
-    messages.push({
-      role: "assistant",
-      content: assistant?.content ?? "",
-      tool_calls: toolCalls,
-    });
-
-    for (const call of toolCalls) {
-      console.log(`[origin] executing signed tool: ${call.function.name}`);
-      await session.sendUiEvent({
-        type: "TOOL_CALL_START",
-        threadId,
-        runId,
-        toolCallId: call.id,
-        toolCallName: call.function.name,
-        parentMessageId,
-      }, { stream: true });
-      await session.sendUiEvent({
-        type: "TOOL_CALL_ARGS",
-        threadId,
-        runId,
-        toolCallId: call.id,
-        delta: typeof call.function.arguments === "string"
-          ? call.function.arguments
-          : JSON.stringify(call.function.arguments ?? {}),
-      }, { stream: true });
-      await session.sendUiEvent({ type: "TOOL_CALL_END", threadId, runId, toolCallId: call.id }, {
-        stream: true,
-      });
-      const result = await toolRuntime.run(call);
-      await session.sendUiEvent({
-        type: "TOOL_CALL_RESULT",
-        threadId,
-        runId,
-        messageId: `${runId}:tool:${call.id}`,
-        toolCallId: call.id,
-        role: "tool",
-        content: result,
-      }, { stream: true });
-      messages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        content: result,
-      });
-    }
-  }
-
-  messages.push({
-    role: "system",
-    content: "Tool call limit reached. Give the user the best answer from the tool results already available.",
-  });
-  return messages;
-}
-
 
 
 async function negotiate(
   offerSdp: string,
   sessionId: string,
   sendSignal: (msg: SignalMsg) => void,
+  state: DaemonState,
 ): Promise<{ sdp: string; pc: RTCPeerConnection }> {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  activePeers.set(sessionId, pc);
+  state.activePeers.set(sessionId, pc);
 
   pc.addEventListener("icecandidate", (ev) => {
     const candidate = (ev as RTCPeerConnectionIceEvent).candidate;
@@ -481,12 +443,12 @@ async function negotiate(
   pc.addEventListener("datachannel", (ev) => {
     const dc = (ev as RTCDataChannelEvent).channel;
     console.log(`[origin] data channel created: ${dc.label} (${dc.readyState})`);
-    const session = createDartcPeerSession(dc);
+    const session = createDartcPeerSession(dc, state);
     const sendHello = () => {
       console.log(`[origin] data channel open: ${dc.label}`);
       session.sendDartc<DartcHelloPayload>("dartc.hello", {
         role: "origin",
-        pod_id: selectedPodId,
+        pod_id: state.selectedPodId,
         agent_id: `origin:${session.originKey.publicKey}`,
         protocol_versions: { dartc: "0.2", a2a: "0.2.2" },
         supported_topics: ["dartc.*", "gemmapod.chat.*", "gemmapod.ui.event", "a2a.discovery"],
@@ -496,19 +458,35 @@ async function negotiate(
     };
     if (dc.readyState === "open") {
       sendHello();
+      pushEvent({
+        id: `peer-${sessionId}`,
+        type: "system",
+        content: `Peer connected: ${sessionId.slice(0, 8)}...`,
+        timestamp: Date.now(),
+        metadata: { sessionId, podId: state.selectedPodId },
+      });
     } else {
-      dc.addEventListener("open", sendHello, { once: true });
+      dc.addEventListener("open", () => {
+        sendHello();
+        pushEvent({
+          id: `peer-${sessionId}`,
+          type: "system",
+          content: `Peer connected: ${sessionId.slice(0, 8)}...`,
+          timestamp: Date.now(),
+          metadata: { sessionId, podId: state.selectedPodId },
+        });
+      }, { once: true });
     }
 
     dc.addEventListener("message", async (msgEv) => {
-      await handleDartcFrame(session, (msgEv as MessageEvent).data as string);
+      await handleDartcFrame(session, (msgEv as MessageEvent).data as string, state);
     });
   });
 
   await pc.setRemoteDescription({ sdp: offerSdp, type: "offer" });
-  const queued = pendingCandidatesBySession.get(sessionId);
+  const queued = state.pendingCandidatesBySession.get(sessionId);
   if (queued) {
-    pendingCandidatesBySession.delete(sessionId);
+    state.pendingCandidatesBySession.delete(sessionId);
     await Promise.all(queued.map((candidate) => pc.addIceCandidate(candidate)));
   }
   const answer = await pc.createAnswer();
@@ -517,8 +495,8 @@ async function negotiate(
   return { sdp: pc.localDescription!.sdp, pc };
 }
 
-function createDartcPeerSession(dc: RTCDataChannel): DartcPeerSession {
-  const key = generateSessionKey();
+function createDartcPeerSession(dc: RTCDataChannel, state: DaemonState): DartcPeerSession {
+  const key = generateSessionKey(state);
   const session: DartcPeerSession = {
     originKey: key,
     async sendDartc<TPayload>(topic: string, payload?: TPayload, dartc?: DartcMetadata) {
@@ -531,7 +509,7 @@ function createDartcPeerSession(dc: RTCDataChannel): DartcPeerSession {
         payload,
       });
       const signed = await signEnvelope(envelope, (bytes) =>
-        bytesToB64(loadCore().GemmaPodCore.signBytes(bytes, key.secretKey)),
+        bytesToB64(loadCore(state).GemmaPodCore.signBytes(bytes, key.secretKey)),
       );
       dc.send(JSON.stringify(signed));
     },
@@ -544,7 +522,7 @@ function createDartcPeerSession(dc: RTCDataChannel): DartcPeerSession {
         dartc,
       });
       const signed = await signEnvelope(envelope, (bytes) =>
-        bytesToB64(loadCore().GemmaPodCore.signBytes(bytes, key.secretKey)),
+        bytesToB64(loadCore(state).GemmaPodCore.signBytes(bytes, key.secretKey)),
       );
       dc.send(JSON.stringify(signed));
     },
@@ -552,7 +530,7 @@ function createDartcPeerSession(dc: RTCDataChannel): DartcPeerSession {
   return session;
 }
 
-async function handleDartcFrame(session: DartcPeerSession, raw: string): Promise<void> {
+async function handleDartcFrame(session: DartcPeerSession, raw: string, state: DaemonState): Promise<void> {
   let envelope: DartcEnvelope;
   try {
     envelope = parseEnvelope(raw);
@@ -567,7 +545,7 @@ async function handleDartcFrame(session: DartcPeerSession, raw: string): Promise
   }
 
   const publicKey = session.visitorPublicKey ?? publicKeyFromAgent(envelope.from, envelope.payload);
-  if (!publicKey || !(await verifyDartc(envelope, publicKey))) {
+  if (!publicKey || !(await verifyDartc(envelope, publicKey, state))) {
     console.warn("[origin] rejected DARTC frame: invalid visitor signature");
     await session.sendDartc("dartc.error", {
       code: "bad_signature",
@@ -585,17 +563,17 @@ async function handleDartcFrame(session: DartcPeerSession, raw: string): Promise
     if (session.conversationId) {
       console.log(`[origin] attached DARTC peer to conversation ${session.conversationId}`);
     }
-    if (payload?.pod_id && payload.pod_id !== selectedPodId) {
+    if (payload?.pod_id && payload.pod_id !== state.selectedPodId) {
       await session.sendDartc("dartc.error", {
         code: "pod_mismatch",
-        message: `expected pod ${selectedPodId}`,
+        message: `expected pod ${state.selectedPodId}`,
         fatal: true,
       });
       return;
     }
     if (session.signedManifestB64) {
       try {
-        session.manifest = buildToolRuntime(session.signedManifestB64, selectedPodId).manifest ?? undefined;
+        session.manifest = buildToolRuntime(session.signedManifestB64, state.selectedPodId).manifest ?? undefined;
       } catch (e) {
         await session.sendDartc("dartc.error", {
           code: "manifest_rejected",
@@ -608,7 +586,7 @@ async function handleDartcFrame(session: DartcPeerSession, raw: string): Promise
     await session.sendDartc("dartc.ack", { ok: true }, { ack_for: envelope.msg_id });
     await session.sendDartc<A2ADiscoveryPayload>("a2a.discovery", {
       kind: "AgentCard",
-      card: agentCardForSession(session),
+      card: agentCardForSession(session, state),
     });
     return;
   }
@@ -632,8 +610,8 @@ async function handleDartcFrame(session: DartcPeerSession, raw: string): Promise
       return;
     }
     payload.signedManifestB64 ??= session.signedManifestB64;
-    console.log(`[origin] DARTC chat request id=${payload.request_id} model=${payload.model}`);
-    await handleChat(payload, session);
+    console.log(`[origin] DARTC chat request id=${payload.request_id}`);
+    await handleChat(payload, session, state);
     return;
   }
 
@@ -645,21 +623,21 @@ async function handleDartcFrame(session: DartcPeerSession, raw: string): Promise
   });
 }
 
-function loadCore(): GemmaPodCoreModule {
-  if (!coreModule) {
-    coreModule = require("@gemmapod/core/node") as GemmaPodCoreModule;
+function loadCore(state: DaemonState): GemmaPodCoreModule {
+  if (!state.coreModule) {
+    state.coreModule = _require("@gemmapod/core/node") as GemmaPodCoreModule;
   }
-  return coreModule;
+  return state.coreModule;
 }
 
-function generateSessionKey(): SessionKey {
-  const key = loadCore().GemmaPodCore.generateKey();
+function generateSessionKey(state: DaemonState): SessionKey {
+  const key = loadCore(state).GemmaPodCore.generateKey();
   return { publicKey: key.publicKey, secretKey: hexToBytes(key.secretKey) };
 }
 
-async function verifyDartc(envelope: DartcEnvelope, publicKeyHex: string): Promise<boolean> {
+async function verifyDartc(envelope: DartcEnvelope, publicKeyHex: string, state: DaemonState): Promise<boolean> {
   return verifyEnvelope(envelope, (bytes, signature) =>
-    loadCore().GemmaPodCore.verifyBytes(bytes, b64ToBytes(signature), hexToBytes(publicKeyHex)),
+    loadCore(state).GemmaPodCore.verifyBytes(bytes, b64ToBytes(signature), hexToBytes(publicKeyHex)),
   );
 }
 
@@ -675,49 +653,11 @@ function conversationMemoryKey(podId: string, conversationId: string): string {
   return `${podId}:${conversationId}`;
 }
 
-function agentCardForSession(session: DartcPeerSession): A2AAgentCard {
+function agentCardForSession(session: DartcPeerSession, state: DaemonState): A2AAgentCard {
   const manifest = session.manifest;
-  return {
-    protocolVersion: "0.2.2",
-    name: manifest?.name ?? selectedPodId,
-    description: manifest?.persona ?? "A GemmaPod origin agent reachable over DARTC/WebRTC.",
-    capabilities: {
-      streaming: true,
-      pushNotifications: false,
-      stateTransitionHistory: false,
-    },
-    skills: [
-      {
-        id: "gemmapod-chat",
-        name: "GemmaPod chat",
-        description: "Accepts signed chat requests and returns streamed model responses.",
-        tags: ["gemmapod", "dartc", "webrtc", "gemma"],
-      },
-      ...(manifest?.tools ?? []).map((tool) => ({
-        id: `tool:${tool.name}`,
-        name: tool.name,
-        description: tool.description,
-        tags: ["tool", "signed-manifest"],
-      })),
-    ],
-    provider: {
-      organization: "GemmaPod Project",
-      url: "https://gemmapod.com",
-    },
-    extensions: [
-      {
-        uri: "https://gemmapod.com/protocols/dartc",
-        version: "0.2",
-        topics: ["dartc.hello", "a2a.discovery", "gemmapod.chat.request", "gemmapod.ui.event"],
-      },
-      {
-        uri: "https://gemmapod.com/extensions/signed-manifest",
-        version: "1",
-        pod_id: manifest?.transport?.webrtc?.pod_id ?? manifest?.id ?? selectedPodId,
-        owner_pubkey: manifest?.owner_pubkey,
-      },
-    ],
-  };
+  return agentCardFromManifest(
+    manifest ?? { name: state.selectedPodId, model: state.selectedModel },
+  );
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -735,33 +675,27 @@ function b64ToBytes(b64: string): Uint8Array {
   return new Uint8Array(Buffer.from(b64, "base64"));
 }
 
-let activePeers = new Map<string, RTCPeerConnection>();
-let pendingCandidatesBySession = new Map<string, RTCIceCandidateInit[]>();
-let ws: WebSocket | null = null;
-let reconnectAttempt = 0;
+function connect(state: DaemonState): void {
+  console.log(`[origin] connecting to ${state.signalUrl} (pod=${state.selectedPodId})…`);
 
-function connect(): void {
-  console.log(`[origin] connecting to ${SIGNAL_URL} (pod=${selectedPodId})…`);
-  
-  const signalUrlObj = new URL(SIGNAL_URL);
-  const origin = signalUrlObj.protocol === "wss:" ? `https://${signalUrlObj.host}` : `http://${signalUrlObj.host}`;
-  
-  ws = new WebSocket(SIGNAL_URL, {
+  const signalUrlObj = new URL(state.signalUrl);
+  const secure = signalUrlObj.protocol === "wss:" || signalUrlObj.protocol === "https:";
+  const origin = `${secure ? "https" : "http"}://${signalUrlObj.host}`;
+
+  state.ws = new WebSocket(toWsUrl(state.signalUrl), {
     headers: {
       origin,
       "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
   });
 
-
-
-  ws.on("open", () => {
-    reconnectAttempt = 0;
-    console.log(`[origin] signaling connected; registering pod ${selectedPodId}`);
-    ws!.send(JSON.stringify({ t: "register", podId: selectedPodId } satisfies SignalMsg));
+  state.ws.on("open", () => {
+    state.reconnectAttempt = 0;
+    console.log(`[origin] signaling connected; registering pod ${state.selectedPodId}`);
+    state.ws!.send(JSON.stringify({ t: "register", podId: state.selectedPodId } satisfies SignalMsg));
   });
 
-  ws.on("message", async (raw) => {
+  state.ws.on("message", async (raw) => {
     let msg: SignalMsg;
     try {
       msg = JSON.parse(raw.toString());
@@ -776,13 +710,13 @@ function connect(): void {
       console.log(`[origin] offer session=${msg.sessionId} (${msg.sdp.length} bytes)`);
       try {
         const { sdp } = await negotiate(msg.sdp, msg.sessionId, (signal) => {
-          ws!.send(JSON.stringify(signal));
-        });
-        ws!.send(JSON.stringify({ t: "answer", sessionId: msg.sessionId, sdp } satisfies SignalMsg));
+          state.ws!.send(JSON.stringify(signal));
+        }, state);
+        state.ws!.send(JSON.stringify({ t: "answer", sessionId: msg.sessionId, sdp } satisfies SignalMsg));
       } catch (e) {
-        activePeers.delete(msg.sessionId);
-        pendingCandidatesBySession.delete(msg.sessionId);
-        ws!.send(
+        state.activePeers.delete(msg.sessionId);
+        state.pendingCandidatesBySession.delete(msg.sessionId);
+        state.ws!.send(
           JSON.stringify({
             t: "error",
             sessionId: msg.sessionId,
@@ -793,11 +727,11 @@ function connect(): void {
       return;
     }
     if (msg.t === "candidate") {
-      const pc = activePeers.get(msg.sessionId);
+      const pc = state.activePeers.get(msg.sessionId);
       if (!pc || !pc.remoteDescription) {
-        const queued = pendingCandidatesBySession.get(msg.sessionId) ?? [];
+        const queued = state.pendingCandidatesBySession.get(msg.sessionId) ?? [];
         queued.push(msg.candidate);
-        pendingCandidatesBySession.set(msg.sessionId, queued);
+        state.pendingCandidatesBySession.set(msg.sessionId, queued);
         return;
       }
       pc.addIceCandidate(msg.candidate).catch((e) => {
@@ -810,35 +744,112 @@ function connect(): void {
     }
   });
 
-  ws.on("close", (code) => {
+  state.ws.on("close", (code) => {
     console.log(`[origin] signaling closed (${code})`);
-    ws = null;
-    scheduleReconnect();
+    state.ws = null;
+    scheduleReconnect(state);
   });
 
-  ws.on("error", (e) => {
+  state.ws.on("error", (e) => {
     console.warn(`[origin] signaling error: ${e.message}`);
   });
 }
 
-function scheduleReconnect(): void {
-  reconnectAttempt++;
-  const wait = Math.min(30_000, 500 * 2 ** Math.min(reconnectAttempt, 6));
-  setTimeout(connect, wait);
+function scheduleReconnect(state: DaemonState): void {
+  state.reconnectAttempt++;
+  const wait = Math.min(30_000, 500 * 2 ** Math.min(state.reconnectAttempt, 6));
+  setTimeout(() => connect(state), wait);
 }
 
-bootstrap();
+export async function startDaemon(config: DaemonConfig): Promise<string | undefined> {
+  if (config.ownerPubkey) process.env.OWNER_PUBKEY = config.ownerPubkey;
+  if (config.contactJson) process.env.GEMMAPOD_CONTACT_JSON = config.contactJson;
 
-// Periodic prune of closed peers to keep the map bounded.
-setInterval(() => {
-  const now = Date.now();
-  for (const [sid, pc] of activePeers) {
-    if (pc.connectionState === "closed" || pc.connectionState === "failed") {
-      activePeers.delete(sid);
-      pendingCandidatesBySession.delete(sid);
+  const dashboardState: DashboardState = {
+    podId: config.podId,
+    model: config.model,
+    ollamaUrl: config.ollamaUrl,
+    signalUrl: config.signalUrl,
+    conversations: new ConversationStore(config.dbPath),
+    activePeerCount: 0,
+    totalMessages: 0,
+    status: "idle",
+  };
+
+  const state: DaemonState = {
+    ollamaUrl: config.ollamaUrl,
+    signalUrl: config.signalUrl,
+    selectedModel: config.model,
+    selectedPodId: config.podId,
+    coreModule: null,
+    conversations: new ConversationStore(config.dbPath),
+    activePeers: new Map(),
+    pendingCandidatesBySession: new Map(),
+    ws: null,
+    reconnectAttempt: 0,
+    dashboard: dashboardState,
+  };
+
+  // Start dashboard server
+  const dashboard = createDashboardServer(dashboardState);
+  const dashboardPort = await dashboard.start();
+  const dashboardUrl = `http://localhost:${dashboardPort}`;
+
+  console.log(`[origin] proxying to Ollama at ${config.ollamaUrl} using model ${config.model}`);
+  connect(state);
+  setInterval(() => {
+    const now = Date.now();
+    for (const [sid, pc] of state.activePeers) {
+      if (pc.connectionState === "closed" || pc.connectionState === "failed") {
+        state.activePeers.delete(sid);
+        state.pendingCandidatesBySession.delete(sid);
+      }
     }
-  }
-  conversations.pruneOlderThan(now - CONVERSATION_TTL_MS);
-}, 30_000);
+    state.conversations.pruneOlderThan(now - CONVERSATION_TTL_MS);
+    // Update dashboard stats
+    state.dashboard.activePeerCount = state.activePeers.size;
+  }, 30_000);
 
-console.log(`[origin] proxying to Ollama at ${OLLAMA_URL} using model ${selectedModel}`);
+  return dashboardUrl;
+}
+
+async function bootstrapInteractive(): Promise<void> {
+  const ollamaUrl = process.env.OLLAMA_URL ?? "http://localhost:11434";
+  const signalUrl = process.env.SIGNAL_URL ?? "wss://signal.gemmapod.com/signal";
+  console.log(`[origin] checking Ollama at ${ollamaUrl}...`);
+  try {
+    const res = await fetch(`${ollamaUrl}/api/tags`);
+    const data = await res.json() as { models: Array<{ name: string }> };
+    const models = data.models.map(m => m.name);
+    if (models.length === 0) {
+      console.warn("[origin] no models found in Ollama. Please run 'ollama pull gemma4:e4b' first.");
+      process.exit(1);
+    }
+    const modelPrompt = new (enquirer as any).Select({
+      name: 'model',
+      message: 'Select an Ollama model to serve:',
+      choices: models
+    });
+    const model = await modelPrompt.run() as string;
+    console.log(`[origin] selected model: ${model}`);
+    let podId = process.env.POD_ID ?? "";
+    if (!podId) {
+      const input = new (enquirer as any).Input({
+        message: 'Enter Pod ID to register (e.g. raj-card):',
+        initial: 'raj-card'
+      });
+      podId = await input.run() as string;
+    }
+    console.log(`[origin] using Pod ID: ${podId}`);
+    await startDaemon({ podId, signalUrl, ollamaUrl, model });
+  } catch (e) {
+    console.error(`[origin] failed to reach Ollama:`, e);
+    process.exit(1);
+  }
+}
+
+// Run interactively when executed as main script (preserves gemmapod-origin bin behavior)
+const _isMain = process.argv[1]?.endsWith("/daemon.js") || process.argv[1]?.endsWith("/daemon.ts");
+if (_isMain) {
+  bootstrapInteractive().catch((e) => { console.error("[origin]", e); process.exit(1); });
+}

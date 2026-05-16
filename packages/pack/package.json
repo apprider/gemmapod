@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/pack",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "description": "gemmapod CLI: turn a pod.toml + owner Ed25519 key into a single signed, self-mounting .html agent capsule. Same Rust/WASM core as the browser verifier.",
   "keywords": [

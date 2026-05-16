@@ -13,7 +13,7 @@ the daemon proxies chat to your local Ollama.
   ```
 - A signaling broker reachable from both this daemon and your visitor.
   Either:
-  - the production gemmapod.com broker (`wss://cloud.gemmapod.com/signal`)
+  - the production gemmapod.com broker (`https://signal.gemmapod.com/signal`)
   - or your own (`pnpm --filter @gemmapod/example-self-host-signaling start`)
 
 ## Run
