@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Rust → WASM core for GemmaPod: signed manifest (CBOR + Ed25519) and DARTC byte signing/verifying. Same code runs in browsers (wasm-pack --target web) and in Node (wasm-pack --target nodejs); the parent package exports both via the .web and .node subpaths.",
   "keywords": [

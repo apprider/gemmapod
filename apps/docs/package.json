@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/docs",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "docs.gemmapod.com — Fumadocs-powered documentation site. Source MDX lives next to the renderer; deploys independently from gemmapod.com.",

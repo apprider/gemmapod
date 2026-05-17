@@ -1,5 +1,18 @@
 # @gemmapod/dartc
 
+## 0.3.0
+
+### Minor Changes
+
+- Add A2A agent card extensions and DARTC protocol metadata
+
+  - Add `GemmaPodDartcExtension` and `GemmaPodPodExtension` interfaces for A2A agent cards
+  - Add `PodAgentCard` type with typed extensions array
+  - Add `ManifestInput` interface for building agent cards from manifests
+  - Add `agentCardFromManifest()` helper to construct A2A-shaped agent cards
+  - Remove `model` field from `GemmaPodChatRequest` (origin selects model at runtime)
+  - Add `A2ADiscoveryPayload` and `A2AAgentCard` exports
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/example-react-headless",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "React app that mounts a headless GemmaPod runtime and renders its own transcript + composer.",

@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/example-nextjs-embed",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "Next.js App Router page that mounts a GemmaPod via the script-tag IIFE and a client component.",

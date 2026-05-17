@@ -1,6 +1,6 @@
 {
   "name": "gemmapod",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "description": "GemmaPod owner CLI — create, build, run, and manage signed AI agent pods with a single command.",
   "keywords": [

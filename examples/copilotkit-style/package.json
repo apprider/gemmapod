@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/example-copilotkit-style",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "Side-by-side viewer of DARTC UI events vs. AG-UI PascalCase events — the integration pattern for CopilotKit / AG-UI consumers.",

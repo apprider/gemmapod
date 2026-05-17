@@ -1,6 +1,6 @@
 {
   "name": "@gemmapod/cloud",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Reference signaling broker + pod registry for GemmaPod. Run with `npx @gemmapod/cloud` for an in-memory broker, or plug your own Registry implementation behind the same interface.",
   "keywords": [
